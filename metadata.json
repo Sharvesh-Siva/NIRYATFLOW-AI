@@ -1,0 +1,6 @@
+{
+  "name": "NiryatFlow AI",
+  "description": "AI-powered export operations, financial intelligence, document readiness, PayPal Sandbox payments, and digital twin platform for MSME exporters.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
