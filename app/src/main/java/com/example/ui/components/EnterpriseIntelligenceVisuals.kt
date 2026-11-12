@@ -197,22 +197,22 @@ object TradeRiskEngine {
 
             // 3. Unverified or Pending Payments
             val orderPayments = paymentsByOrder[order.id].orEmpty()
-            val capturedSum = orderPayments.filter { it.paymentStatus == "CAPTURED" }.sumOf { it.amount }
+            val capturedSum = orderPayments.filter { FinancialCalculationEngine.isPaymentSettled(it.paymentStatus) }.sumOf { it.amount }
             val pendingPayments = orderPayments.filter {
-                it.paymentStatus in listOf("PENDING_APPROVAL", "APPROVED", "FAILED", "REQUIRES_RECONCILIATION")
+                it.paymentStatus in listOf("PENDING_APPROVAL", "DEMO_PENDING", "APPROVED", "FAILED", "DEMO_FAILED", "DEMO_CANCELLED", "REQUIRES_RECONCILIATION")
             }
             if (pendingPayments.isNotEmpty()) {
                 val p = pendingPayments.first()
                 alerts.add(
                     TradeRiskAlert(
                         id = "risk_pay_pending_${order.id}",
-                        severity = if (p.paymentStatus in listOf("FAILED", "REQUIRES_RECONCILIATION")) "CRITICAL" else "HIGH",
+                        severity = if (p.paymentStatus in listOf("FAILED", "DEMO_FAILED", "REQUIRES_RECONCILIATION")) "CRITICAL" else "HIGH",
                         category = "UNVERIFIED SETTLEMENT",
                         affectedOrderId = order.id,
                         affectedOrderNumber = order.orderNumber,
-                        evidence = "PayPal Ref ${p.paypalOrderId.ifBlank { "Unassigned" }} (${p.currency} ${String.format("%,.2f", p.amount)}) is in state ${p.paymentStatus}",
-                        explanation = "Frontend payment initiation does not guarantee settlement until backend capture is verified.",
-                        recommendedAction = "Approve & capture or reconcile PayPal Sandbox order in Payment Intelligence.",
+                        evidence = "Payment Ref ${p.paypalOrderId.ifBlank { "Unassigned" }} (${p.currency} ${String.format("%,.2f", p.amount)}) is in state ${p.paymentStatus}",
+                        explanation = "Payment initiation does not guarantee settlement until capture is verified.",
+                        recommendedAction = "Complete or reconcile payment in Payment Intelligence.",
                         resolutionStatus = "OPEN",
                         targetRoute = "paypal_payments"
                     )

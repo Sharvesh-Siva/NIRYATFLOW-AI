@@ -4,6 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -67,6 +70,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.credentials.CredentialManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -74,6 +78,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.data.repository.NiryatRepository
 import com.example.data.sample.SampleBusinessWorkspaceSeeder
+import com.example.data.sample.SampleWorkspaceLocalStore
 import com.example.data.sample.WorkspaceMode
 import com.example.ui.components.AppBottomNavigation
 import com.example.ui.components.CinematicLaunchScreen
@@ -119,6 +124,7 @@ private fun configureAppCheck(activity: ComponentActivity, intent: Intent) {
     val isDebuggable =
         (activity.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
     if (!isDebuggable) {
+        Log.i(TAG, "Release build detected: Play Integrity App Check enforcement active.")
         return
     }
     val token = intent.getStringExtra(EXTRA_DEBUG_TOKEN)
@@ -201,12 +207,14 @@ fun NiryatRootApp() {
     var showSplash by rememberSaveable { mutableStateOf(true) }
     var currentUser by remember { mutableStateOf<FirebaseUser?>(Firebase.auth.currentUser) }
     var isExploringSampleWithoutAuth by rememberSaveable {
-        mutableStateOf(prefs.getBoolean(PREF_KEY_SAMPLE_GUEST_ACTIVE, false))
+        mutableStateOf(prefs.getBoolean(PREF_KEY_SAMPLE_GUEST_ACTIVE, true))
     }
     var preferredWorkspaceModeName by rememberSaveable {
         mutableStateOf(
-            prefs.getString(PREF_KEY_WORKSPACE_MODE, WorkspaceMode.PRODUCTION.name)
-                ?: WorkspaceMode.PRODUCTION.name
+            prefs.getString(
+                PREF_KEY_WORKSPACE_MODE,
+                if (Firebase.auth.currentUser != null) WorkspaceMode.PRODUCTION.name else WorkspaceMode.SAMPLE_BUSINESS.name
+            ) ?: WorkspaceMode.SAMPLE_BUSINESS.name
         )
     }
 
@@ -282,7 +290,8 @@ fun NiryatRootApp() {
                     return NiryatViewModel(
                         repository = if (activeUser != null) NiryatRepository(context.applicationContext) else null,
                         currentUserId = activeUser?.uid ?: SampleBusinessWorkspaceSeeder.SAMPLE_USER_ID,
-                        initialMode = targetWorkspaceMode
+                        initialMode = targetWorkspaceMode,
+                        sampleLocalStore = SampleWorkspaceLocalStore(context.applicationContext)
                     ) as T
                 }
             }
@@ -449,6 +458,18 @@ fun NiryatAuthenticatedShell(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
+                                        text = "Web SaaS",
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = LightGoldAccent,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .clickable { currentRoute = "web_saas_portal" }
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .testTag("open_web_saas_portal_button")
+                                    )
+                                    Text(
                                         text = "Reset",
                                         fontFamily = JetBrainsMonoFamily,
                                         fontSize = 10.sp,
@@ -551,6 +572,12 @@ fun NiryatAuthenticatedShell(
                                         onSelectOrder = { niryatViewModel.selectOrder(it) },
                                         onNavigate = { route ->
                                             currentRoute = if (route == "performance") NiryatRoutes.ROUTE_MORE else route
+                                        },
+                                        onUpdateOrderStatus = { ord, newStatus ->
+                                            niryatViewModel.updateOrderStatus(ord, newStatus)
+                                        },
+                                        onDeleteOrder = { ord ->
+                                            niryatViewModel.deleteExportOrder(ord)
                                         }
                                     )
                                 }
@@ -663,6 +690,12 @@ fun NiryatAuthenticatedShell(
                                         onReconcilePayPalOrder = { payRec ->
                                             niryatViewModel.reconcilePayPalOrderStatus(payRec)
                                         },
+                                        onFailDemoPayment = { payRec ->
+                                            niryatViewModel.failDemoPayment(payRec)
+                                        },
+                                        onCancelDemoPayment = { payRec ->
+                                            niryatViewModel.cancelDemoPayment(payRec)
+                                        },
                                         onBack = { currentRoute = NiryatRoutes.ROUTE_DASHBOARD }
                                     )
                                 }
@@ -675,6 +708,12 @@ fun NiryatAuthenticatedShell(
                                             currentRoute = if (route == "performance") NiryatRoutes.ROUTE_MORE else route
                                         },
                                         onBack = { currentRoute = NiryatRoutes.ROUTE_ORDERS }
+                                    )
+                                }
+
+                                "web_saas_portal" -> {
+                                    WebSaasPortalScreen(
+                                        onBackToNative = { currentRoute = NiryatRoutes.ROUTE_DASHBOARD }
                                     )
                                 }
 
@@ -797,3 +836,67 @@ private fun AdaptiveMinimalNavigationRail(
         }
     }
 }
+
+@Composable
+private fun WebSaasPortalScreen(
+    onBackToNative: () -> Unit
+) {
+    BackHandler { onBackToNative() }
+    Column(modifier = Modifier.fillMaxSize()) {
+        Surface(
+            color = PrimaryInk,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "NIRYATFLOW AI • REACT + TYPESCRIPT + VITE WEB SAAS",
+                    fontFamily = JetBrainsMonoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ChampagneAccent
+                )
+                Text(
+                    text = "← Native Android UI",
+                    fontFamily = JetBrainsMonoFamily,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = PureWhiteSurface,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { onBackToNative() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .testTag("back_to_native_ui_button")
+                )
+            }
+        }
+
+        AndroidView(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .testTag("react_web_saas_webview"),
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.allowFileAccess = true
+                    settings.allowContentAccess = true
+                    @Suppress("DEPRECATION")
+                    settings.allowFileAccessFromFileURLs = true
+                    @Suppress("DEPRECATION")
+                    settings.allowUniversalAccessFromFileURLs = true
+                    settings.cacheMode = WebSettings.LOAD_DEFAULT
+                    webViewClient = WebViewClient()
+                    loadUrl("file:///android_asset/web/index.html")
+                }
+            }
+        )
+    }
+}
+

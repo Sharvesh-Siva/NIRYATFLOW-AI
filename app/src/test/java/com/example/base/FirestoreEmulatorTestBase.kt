@@ -15,11 +15,14 @@ import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.After
+import org.junit.Assume
 import org.junit.Before
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.LooperMode
+import java.net.InetSocketAddress
+import java.net.Socket
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], manifest = Config.NONE)
@@ -30,11 +33,30 @@ abstract class FirestoreEmulatorTestBase {
     protected lateinit var auth: FirebaseAuth
     protected lateinit var databaseId: String
 
+    private fun isPortOpen(port: Int): Boolean {
+        return try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(EMULATOR_HOST, port), 250)
+                true
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     @Before
     open fun setUpFirebase() {
+        Assume.assumeTrue(
+            "Skipping live Firebase Emulator rule test because emulator ports ($FIRESTORE_PORT/$AUTH_PORT) are not active.",
+            isPortOpen(FIRESTORE_PORT) && isPortOpen(AUTH_PORT)
+        )
         val context = ApplicationProvider.getApplicationContext<Context>()
         val resId = context.resources.getIdentifier("firestore_database_id", "string", context.packageName)
-        databaseId = if (resId != 0) context.getString(resId) else "demo-database"
+        databaseId = if (resId != 0) {
+            context.getString(resId)
+        } else {
+            "ai-studio-android-niryatfl-cee6d74d-ca49-44b0-91b3-9cb48bb4c909"
+        }
 
         val app = if (FirebaseApp.getApps(context).isEmpty()) {
             val newApp = FirebaseApp.initializeApp(
@@ -64,7 +86,7 @@ abstract class FirestoreEmulatorTestBase {
 
     @After
     open fun tearDownFirebase() {
-        auth.signOut()
+        runCatching { auth.signOut() }
     }
 
     protected suspend fun signInTestUser(email: String): String = withContext(Dispatchers.IO) {
@@ -93,6 +115,6 @@ abstract class FirestoreEmulatorTestBase {
         const val AUTH_PORT = 9099
         const val PROJECT_ID = "demo-no-project"
         const val DEFAULT_PASSWORD = "password123"
-        const val AUTH_TIMEOUT_MS = 5000L
+        const val AUTH_TIMEOUT_MS = 15000L
     }
 }

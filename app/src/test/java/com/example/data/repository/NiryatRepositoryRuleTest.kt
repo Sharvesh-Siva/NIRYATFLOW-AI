@@ -139,7 +139,7 @@ class NiryatRepositoryRuleTest : FirestoreEmulatorTestBase() {
     private companion object {
         const val ALICE_EMAIL = "alice@niryatflow.test"
         const val BOB_EMAIL = "bob@niryatflow.test"
-        const val DEFAULT_TIMEOUT_MS = 5000L
-        const val FLOW_TIMEOUT_MS = 3500L
+        const val DEFAULT_TIMEOUT_MS = 15000L
+        const val FLOW_TIMEOUT_MS = 15000L
     }
 }

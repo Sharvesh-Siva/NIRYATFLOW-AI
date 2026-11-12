@@ -70,10 +70,15 @@ data class DocumentRecord(
     val exportOrderId: String = "",
     val documentType: String = "",
     val requirementLevel: String = "REQUIRED", // REQUIRED, OPTIONAL, NOT_APPLICABLE
-    val status: String = "MISSING", // MISSING, UPLOADED, UNDER_REVIEW, VERIFIED, REJECTED, REUPLOAD_REQUIRED
+    val status: String = "MISSING", // MISSING, UPLOADED, PENDING_REVIEW, UNDER_REVIEW, APPROVED, VERIFIED, REJECTED, REUPLOAD_REQUIRED, OFFICIALLY_CERTIFIED
     val fileName: String = "",
     val fileReference: String = "",
     val reviewerNote: String = "",
+    val fileMimeType: String = "application/pdf",
+    val fileSizeBytes: Long = 0L,
+    val sha256Checksum: String = "",
+    val versionNumber: Int = 1,
+    val reviewerRole: String = "",
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
@@ -189,4 +194,33 @@ data class PerformanceMetrics(
     val documentReadinessRatePercent: Double = 0.0,
     val statusDistribution: Map<String, Int> = emptyMap(),
     val countryDistribution: Map<String, Double> = emptyMap()
+)
+
+enum class TimePeriodFilter(val code: String, val label: String, val windowMillis: Long?) {
+    ONE_DAY("1D", "Last 24 Hours", 24L * 60 * 60 * 1000L),
+    ONE_WEEK("1W", "Last 7 Days", 7L * 24 * 60 * 60 * 1000L),
+    ONE_MONTH("1M", "Last 30 Days", 30L * 24 * 60 * 60 * 1000L),
+    THREE_MONTHS("3M", "Last 90 Days", 90L * 24 * 60 * 60 * 1000L),
+    ONE_YEAR("1Y", "Last 12 Months", 365L * 24 * 60 * 60 * 1000L),
+    ALL("ALL", "All-Time Portfolio", null);
+
+    companion object {
+        fun fromCode(code: String): TimePeriodFilter =
+            entries.firstOrNull { it.code.equals(code, ignoreCase = true) } ?: ONE_MONTH
+    }
+}
+
+data class PeriodDashboardAnalytics(
+    val period: TimePeriodFilter,
+    val metrics: PerformanceMetrics,
+    val filteredOrders: List<ExportOrder>,
+    val filteredPayments: List<PaymentRecord>,
+    val previousPeriodOrderValueInr: Double = 0.0,
+    val orderValueGrowthPercent: Double? = null,
+    val previousPeriodCapturedInr: Double = 0.0,
+    val capturedRevenueGrowthPercent: Double? = null,
+    val chartBucketLabels: List<String> = emptyList(),
+    val chartOrderIntakeInr: List<Double> = emptyList(),
+    val chartCapturedPaymentsInr: List<Double> = emptyList(),
+    val periodSummaryText: String = ""
 )

@@ -1,12 +1,16 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
-    }
 
     function isSignedIn() {
       return request.auth != null;
+    }
+
+    function isComplianceReviewer() {
+      return isSignedIn() && (
+        request.auth.token.reviewer == true ||
+        request.auth.token.role == 'COMPLIANCE_REVIEWER'
+      );
     }
 
     function incoming() {
@@ -17,263 +21,170 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isValidId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function isBoundedString(val, maxLen) {
-      return val is string && val.size() <= maxLen;
-    }
-
-    function isNonEmptyString(val, maxLen) {
-      return val is string && val.size() >= 1 && val.size() <= maxLen;
-    }
-
-    function isNumberVal(val) {
-      return val is int || val is float;
-    }
-
-    function isValidExportOrder(data) {
-      return data.userId == request.auth.uid &&
-             isNonEmptyString(data.orderNumber, 64) &&
-             isNonEmptyString(data.exporterName, 200) &&
-             (!('exporterContact' in data) || isBoundedString(data.exporterContact, 200)) &&
-             (!('exporterAddress' in data) || isBoundedString(data.exporterAddress, 500)) &&
-             isNonEmptyString(data.buyerName, 200) &&
-             isNonEmptyString(data.buyerCountry, 120) &&
-             (!('buyerContact' in data) || isBoundedString(data.buyerContact, 200)) &&
-             (!('buyerAddress' in data) || isBoundedString(data.buyerAddress, 500)) &&
-             isNonEmptyString(data.productName, 200) &&
-             (!('productDescription' in data) || isBoundedString(data.productDescription, 1000)) &&
-             isNumberVal(data.quantity) && data.quantity > 0 &&
-             isNonEmptyString(data.unit, 32) &&
-             isNumberVal(data.unitPrice) && data.unitPrice >= 0 &&
-             isNumberVal(data.orderValue) && data.orderValue >= 0 &&
-             isNonEmptyString(data.currency, 10) &&
-             isBoundedString(data.incoterm, 32) &&
-             isBoundedString(data.destinationPort, 200) &&
-             (!('orderDate' in data) || isBoundedString(data.orderDate, 40)) &&
-             (!('expectedShipmentDate' in data) || isBoundedString(data.expectedShipmentDate, 40)) &&
-             isBoundedString(data.paymentTerms, 200) &&
-             isNumberVal(data.advancePercentage) && data.advancePercentage >= 0 && data.advancePercentage <= 100 &&
-             isNonEmptyString(data.orderStatus, 64) &&
-             isNonEmptyString(data.extractionSource, 64) &&
-             data.createdAt is timestamp && data.createdAt <= request.time &&
-             data.updatedAt is timestamp && data.updatedAt <= request.time;
-    }
-
-    function isValidFinancialAssessment(data) {
-      return data.userId == request.auth.uid &&
-             isValidId(data.exportOrderId) &&
-             isNumberVal(data.grossOrderValue) && data.grossOrderValue >= 0 &&
-             isNonEmptyString(data.currency, 10) &&
-             isNumberVal(data.exchangeRate) && data.exchangeRate > 0 &&
-             isNumberVal(data.convertedValueInr) &&
-             isNumberVal(data.advancePercentage) && data.advancePercentage >= 0 && data.advancePercentage <= 100 &&
-             isNumberVal(data.advanceAmount) &&
-             isNumberVal(data.outstandingAmount) &&
-             isNumberVal(data.paymentFeePercentage) && data.paymentFeePercentage >= 0 &&
-             isNumberVal(data.paymentFixedFee) && data.paymentFixedFee >= 0 &&
-             isNumberVal(data.paymentFeeInr) &&
-             isNumberVal(data.procurementCostInr) && data.procurementCostInr >= 0 &&
-             isNumberVal(data.logisticsCostInr) && data.logisticsCostInr >= 0 &&
-             isNumberVal(data.packagingCostInr) && data.packagingCostInr >= 0 &&
-             isNumberVal(data.otherCostsInr) && data.otherCostsInr >= 0 &&
-             isNumberVal(data.estimatedNetRevenueInr) &&
-             isNumberVal(data.estimatedProfitInr) &&
-             isNumberVal(data.profitMarginPercent) &&
-             isBoundedString(data.assumptionsNote, 1000) &&
-             data.createdAt is timestamp && data.createdAt <= request.time &&
-             data.updatedAt is timestamp && data.updatedAt <= request.time;
-    }
-
-    function isValidDocumentRecord(data) {
-      return data.userId == request.auth.uid &&
-             isValidId(data.exportOrderId) &&
-             isNonEmptyString(data.documentType, 120) &&
-             data.requirementLevel in ['REQUIRED', 'OPTIONAL', 'NOT_APPLICABLE'] &&
-             data.status in ['MISSING', 'UPLOADED', 'UNDER_REVIEW', 'VERIFIED', 'REJECTED', 'REUPLOAD_REQUIRED'] &&
-             isBoundedString(data.fileName, 255) &&
-             isBoundedString(data.fileReference, 500) &&
-             isBoundedString(data.reviewerNote, 500) &&
-             data.createdAt is timestamp && data.createdAt <= request.time &&
-             data.updatedAt is timestamp && data.updatedAt <= request.time;
-    }
-
-    function isValidPaymentRecord(data) {
-      return data.userId == request.auth.uid &&
-             isValidId(data.exportOrderId) &&
-             isBoundedString(data.paypalOrderId, 128) &&
-             isBoundedString(data.paypalCaptureId, 128) &&
-             isBoundedString(data.approvalUrl, 1000) &&
-             isNumberVal(data.amount) && data.amount >= 0 &&
-             isNonEmptyString(data.currency, 10) &&
-             data.paymentType in ['ADVANCE', 'BALANCE', 'FULL'] &&
-             data.paymentStatus in ['NOT_INITIATED', 'PENDING_APPROVAL', 'APPROVED', 'CAPTURED', 'FAILED', 'CANCELLED', 'REQUIRES_RECONCILIATION'] &&
-             isBoundedString(data.verificationDetails, 2000) &&
-             data.createdAt is timestamp && data.createdAt <= request.time &&
-             data.updatedAt is timestamp && data.updatedAt <= request.time;
-    }
-
-    function isValidActivityRecord(data) {
-      return data.userId == request.auth.uid &&
-             isValidId(data.exportOrderId) &&
-             isNonEmptyString(data.eventType, 64) &&
-             isNonEmptyString(data.title, 200) &&
-             isBoundedString(data.description, 1000) &&
-             data.createdAt is timestamp && data.createdAt <= request.time &&
-             data.updatedAt is timestamp && data.updatedAt <= request.time;
-    }
-
+    // 1. Export Orders Collection
     match /export_orders/{orderId} {
-      allow get: if isSignedIn() && isValidId(orderId) && existing().userId == request.auth.uid;
-      allow list: if isSignedIn() && existing().userId == request.auth.uid;
-      allow create: if isSignedIn() &&
-                       isValidId(orderId) &&
-                       incoming().keys().hasAll([
-                         'userId', 'orderNumber', 'exporterName', 'buyerName', 'buyerCountry',
-                         'productName', 'quantity', 'unit', 'unitPrice', 'orderValue', 'currency',
-                         'incoterm', 'destinationPort', 'paymentTerms', 'advancePercentage',
-                         'orderStatus', 'extractionSource', 'createdAt', 'updatedAt'
-                       ]) &&
-                       incoming().keys().hasOnly([
-                         'userId', 'orderNumber', 'exporterName', 'exporterContact', 'exporterAddress',
-                         'buyerName', 'buyerCountry', 'buyerContact', 'buyerAddress', 'productName',
-                         'productDescription', 'quantity', 'unit', 'unitPrice', 'orderValue', 'currency',
-                         'incoterm', 'destinationPort', 'orderDate', 'expectedShipmentDate',
-                         'paymentTerms', 'advancePercentage', 'orderStatus', 'extractionSource',
-                         'createdAt', 'updatedAt'
-                       ]) &&
-                       isValidExportOrder(incoming());
-      allow update: if isSignedIn() &&
-                       isValidId(orderId) &&
-                       existing().userId == request.auth.uid &&
-                       incoming().userId == existing().userId &&
-                       incoming().createdAt == existing().createdAt &&
-                       isValidExportOrder(incoming()) &&
-                       incoming().diff(existing()).affectedKeys().hasOnly([
-                         'orderNumber', 'exporterName', 'exporterContact', 'exporterAddress',
-                         'buyerName', 'buyerCountry', 'buyerContact', 'buyerAddress', 'productName',
-                         'productDescription', 'quantity', 'unit', 'unitPrice', 'orderValue', 'currency',
-                         'incoterm', 'destinationPort', 'orderDate', 'expectedShipmentDate',
-                         'paymentTerms', 'advancePercentage', 'orderStatus', 'extractionSource',
-                         'updatedAt'
-                       ]);
-      allow delete: if isSignedIn() && isValidId(orderId) && existing().userId == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && incoming().keys().hasAll([
+          'userId', 'orderNumber', 'exporterName', 'exporterContact', 'exporterAddress',
+          'buyerName', 'buyerCountry', 'buyerContact', 'buyerAddress',
+          'productName', 'productDescription', 'quantity', 'unit', 'unitPrice',
+          'orderValue', 'currency', 'incoterm', 'destinationPort',
+          'orderDate', 'expectedShipmentDate', 'paymentTerms', 'advancePercentage',
+          'orderStatus', 'extractionSource', 'createdAt', 'updatedAt'
+        ])
+        && incoming().keys().hasOnly([
+          'id', 'userId', 'orderNumber', 'exporterName', 'exporterContact', 'exporterAddress',
+          'buyerName', 'buyerCountry', 'buyerContact', 'buyerAddress',
+          'productName', 'productDescription', 'quantity', 'unit', 'unitPrice',
+          'orderValue', 'currency', 'incoterm', 'destinationPort',
+          'orderDate', 'expectedShipmentDate', 'paymentTerms', 'advancePercentage',
+          'orderStatus', 'extractionSource', 'createdAt', 'updatedAt'
+        ])
+        && incoming().userId == request.auth.uid
+        && incoming().orderNumber is string && incoming().orderNumber.size() >= 1 && incoming().orderNumber.size() <= 80
+        && incoming().exporterName is string && incoming().exporterName.size() <= 200
+        && incoming().buyerName is string && incoming().buyerName.size() >= 1 && incoming().buyerName.size() <= 200
+        && incoming().buyerCountry is string && incoming().buyerCountry.size() >= 1 && incoming().buyerCountry.size() <= 120
+        && incoming().productName is string && incoming().productName.size() >= 1 && incoming().productName.size() <= 200
+        && incoming().quantity is number && incoming().quantity > 0
+        && incoming().unitPrice is number && incoming().unitPrice >= 0
+        && incoming().orderValue is number && incoming().orderValue >= 0
+        && incoming().advancePercentage is number && incoming().advancePercentage >= 0 && incoming().advancePercentage <= 100
+        && incoming().orderStatus in [
+          'CREATED', 'VALIDATED', 'FINANCIALLY_ASSESSED', 'DOCS_READY',
+          'PAYMENT_INITIATED', 'COMPLETED', 'CANCELLED',
+          'SHIPMENT_IN_TRANSIT', 'AWAITING_PAYMENT', 'DOCUMENTATION_PENDING', 'ORDER_PROCESSING'
+        ]
+        && incoming().extractionSource in ['MANUAL', 'AI_EXTRACTED_CONFIRMED']
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && existing().userId == request.auth.uid
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().quantity is number && incoming().quantity > 0
+        && incoming().unitPrice is number && incoming().unitPrice >= 0
+        && incoming().orderValue is number && incoming().orderValue >= 0
+        && incoming().advancePercentage is number && incoming().advancePercentage >= 0 && incoming().advancePercentage <= 100
+        && incoming().orderStatus in [
+          'CREATED', 'VALIDATED', 'FINANCIALLY_ASSESSED', 'DOCS_READY',
+          'PAYMENT_INITIATED', 'COMPLETED', 'CANCELLED',
+          'SHIPMENT_IN_TRANSIT', 'AWAITING_PAYMENT', 'DOCUMENTATION_PENDING', 'ORDER_PROCESSING'
+        ]
+        && incoming().updatedAt == request.time;
+
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
+    // 2. Financial Assessments Collection
     match /financial_assessments/{assessmentId} {
-      allow get: if isSignedIn() && isValidId(assessmentId) && existing().userId == request.auth.uid;
-      allow list: if isSignedIn() && existing().userId == request.auth.uid;
-      allow create: if isSignedIn() &&
-                       isValidId(assessmentId) &&
-                       incoming().keys().hasAll([
-                         'userId', 'exportOrderId', 'grossOrderValue', 'currency', 'exchangeRate',
-                         'convertedValueInr', 'advancePercentage', 'advanceAmount', 'outstandingAmount',
-                         'paymentFeePercentage', 'paymentFixedFee', 'paymentFeeInr', 'procurementCostInr',
-                         'logisticsCostInr', 'packagingCostInr', 'otherCostsInr', 'estimatedNetRevenueInr',
-                         'estimatedProfitInr', 'profitMarginPercent', 'assumptionsNote', 'createdAt', 'updatedAt'
-                       ]) &&
-                       incoming().keys().hasOnly([
-                         'userId', 'exportOrderId', 'grossOrderValue', 'currency', 'exchangeRate',
-                         'convertedValueInr', 'advancePercentage', 'advanceAmount', 'outstandingAmount',
-                         'paymentFeePercentage', 'paymentFixedFee', 'paymentFeeInr', 'procurementCostInr',
-                         'logisticsCostInr', 'packagingCostInr', 'otherCostsInr', 'estimatedNetRevenueInr',
-                         'estimatedProfitInr', 'profitMarginPercent', 'assumptionsNote', 'createdAt', 'updatedAt'
-                       ]) &&
-                       isValidFinancialAssessment(incoming());
-      allow update: if isSignedIn() &&
-                       isValidId(assessmentId) &&
-                       existing().userId == request.auth.uid &&
-                       incoming().userId == existing().userId &&
-                       incoming().exportOrderId == existing().exportOrderId &&
-                       incoming().createdAt == existing().createdAt &&
-                       isValidFinancialAssessment(incoming()) &&
-                       incoming().diff(existing()).affectedKeys().hasOnly([
-                         'grossOrderValue', 'currency', 'exchangeRate', 'convertedValueInr',
-                         'advancePercentage', 'advanceAmount', 'outstandingAmount',
-                         'paymentFeePercentage', 'paymentFixedFee', 'paymentFeeInr',
-                         'procurementCostInr', 'logisticsCostInr', 'packagingCostInr',
-                         'otherCostsInr', 'estimatedNetRevenueInr', 'estimatedProfitInr',
-                         'profitMarginPercent', 'assumptionsNote', 'updatedAt'
-                       ]);
-      allow delete: if isSignedIn() && isValidId(assessmentId) && existing().userId == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && incoming().keys().hasAll([
+          'userId', 'exportOrderId', 'grossOrderValue', 'currency', 'exchangeRate',
+          'convertedValueInr', 'advancePercentage', 'advanceAmount', 'outstandingAmount',
+          'paymentFeePercentage', 'paymentFixedFee', 'paymentFeeInr',
+          'procurementCostInr', 'logisticsCostInr', 'packagingCostInr', 'otherCostsInr',
+          'estimatedNetRevenueInr', 'estimatedProfitInr', 'profitMarginPercent',
+          'assumptionsNote', 'createdAt', 'updatedAt'
+        ])
+        && incoming().userId == request.auth.uid
+        && incoming().exportOrderId is string && incoming().exportOrderId.size() >= 1
+        && incoming().exchangeRate is number && incoming().exchangeRate > 0
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && existing().userId == request.auth.uid
+        && incoming().userId == existing().userId
+        && incoming().exportOrderId == existing().exportOrderId
+        && incoming().createdAt == existing().createdAt
+        && incoming().exchangeRate is number && incoming().exchangeRate > 0
+        && incoming().updatedAt == request.time;
+
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
+    // 3. Document Records Collection (Hardened: Non-reviewer clients cannot self-certify/verify)
     match /document_records/{docId} {
-      allow get: if isSignedIn() && isValidId(docId) && existing().userId == request.auth.uid;
-      allow list: if isSignedIn() && existing().userId == request.auth.uid;
-      allow create: if isSignedIn() &&
-                       isValidId(docId) &&
-                       incoming().keys().hasAll([
-                         'userId', 'exportOrderId', 'documentType', 'requirementLevel',
-                         'status', 'fileName', 'fileReference', 'reviewerNote', 'createdAt', 'updatedAt'
-                       ]) &&
-                       incoming().keys().hasOnly([
-                         'userId', 'exportOrderId', 'documentType', 'requirementLevel',
-                         'status', 'fileName', 'fileReference', 'reviewerNote', 'createdAt', 'updatedAt'
-                       ]) &&
-                       isValidDocumentRecord(incoming());
-      allow update: if isSignedIn() &&
-                       isValidId(docId) &&
-                       existing().userId == request.auth.uid &&
-                       incoming().userId == existing().userId &&
-                       incoming().exportOrderId == existing().exportOrderId &&
-                       incoming().createdAt == existing().createdAt &&
-                       isValidDocumentRecord(incoming()) &&
-                       incoming().diff(existing()).affectedKeys().hasOnly([
-                         'documentType', 'requirementLevel', 'status', 'fileName',
-                         'fileReference', 'reviewerNote', 'updatedAt'
-                       ]);
-      allow delete: if isSignedIn() && isValidId(docId) && existing().userId == request.auth.uid;
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isComplianceReviewer());
+
+      allow create: if isSignedIn()
+        && incoming().userId == request.auth.uid
+        && incoming().exportOrderId is string && incoming().exportOrderId.size() >= 1
+        && incoming().documentType is string && incoming().documentType.size() >= 1 && incoming().documentType.size() <= 120
+        && incoming().requirementLevel in ['REQUIRED', 'OPTIONAL', 'NOT_APPLICABLE']
+        && (
+          incoming().status in ['MISSING', 'UPLOADED', 'PENDING_REVIEW', 'UNDER_REVIEW', 'REUPLOAD_REQUIRED'] ||
+          (isComplianceReviewer() && incoming().status in ['APPROVED', 'VERIFIED', 'REJECTED', 'OFFICIALLY_CERTIFIED'])
+        )
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && (existing().userId == request.auth.uid || isComplianceReviewer())
+        && incoming().userId == existing().userId
+        && incoming().exportOrderId == existing().exportOrderId
+        && incoming().createdAt == existing().createdAt
+        && incoming().requirementLevel in ['REQUIRED', 'OPTIONAL', 'NOT_APPLICABLE']
+        && (
+          incoming().status in ['MISSING', 'UPLOADED', 'PENDING_REVIEW', 'UNDER_REVIEW', 'REUPLOAD_REQUIRED'] ||
+          (isComplianceReviewer() && incoming().status in ['APPROVED', 'VERIFIED', 'REJECTED', 'OFFICIALLY_CERTIFIED'])
+        )
+        && incoming().updatedAt == request.time;
+
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
 
+    // 4. Payment Records Collection (Hardened: Clients CANNOT self-write CAPTURED status; only Backend Admin SDK can)
     match /payment_records/{paymentId} {
-      allow get: if isSignedIn() && isValidId(paymentId) && existing().userId == request.auth.uid;
-      allow list: if isSignedIn() && existing().userId == request.auth.uid;
-      allow create: if isSignedIn() &&
-                       isValidId(paymentId) &&
-                       incoming().keys().hasAll([
-                         'userId', 'exportOrderId', 'paypalOrderId', 'paypalCaptureId', 'approvalUrl',
-                         'amount', 'currency', 'paymentType', 'paymentStatus', 'verificationDetails',
-                         'createdAt', 'updatedAt'
-                       ]) &&
-                       incoming().keys().hasOnly([
-                         'userId', 'exportOrderId', 'paypalOrderId', 'paypalCaptureId', 'approvalUrl',
-                         'amount', 'currency', 'paymentType', 'paymentStatus', 'verificationDetails',
-                         'createdAt', 'updatedAt'
-                       ]) &&
-                       isValidPaymentRecord(incoming());
-      allow update: if isSignedIn() &&
-                       isValidId(paymentId) &&
-                       existing().userId == request.auth.uid &&
-                       incoming().userId == existing().userId &&
-                       incoming().exportOrderId == existing().exportOrderId &&
-                       incoming().createdAt == existing().createdAt &&
-                       isValidPaymentRecord(incoming()) &&
-                       incoming().diff(existing()).affectedKeys().hasOnly([
-                         'paypalOrderId', 'paypalCaptureId', 'approvalUrl', 'amount', 'currency',
-                         'paymentType', 'paymentStatus', 'verificationDetails', 'updatedAt'
-                       ]);
-      allow delete: if isSignedIn() && isValidId(paymentId) && existing().userId == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && incoming().userId == request.auth.uid
+        && incoming().exportOrderId is string && incoming().exportOrderId.size() >= 1
+        && incoming().amount is number && incoming().amount > 0
+        && incoming().paymentType in ['ADVANCE', 'BALANCE', 'FULL']
+        // Authoritative CAPTURED state is restricted to Firebase Admin SDK (Cloud Functions)
+        && incoming().paymentStatus in ['NOT_INITIATED', 'PENDING_APPROVAL', 'REQUIRES_RECONCILIATION']
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && existing().userId == request.auth.uid
+        && incoming().userId == existing().userId
+        && incoming().exportOrderId == existing().exportOrderId
+        && incoming().createdAt == existing().createdAt
+        && incoming().amount == existing().amount
+        && incoming().currency == existing().currency
+        // Clients cannot transition a payment to CAPTURED or APPROVED; only backend Admin SDK can
+        && incoming().paymentStatus in ['NOT_INITIATED', 'PENDING_APPROVAL', 'CANCELLED', 'REQUIRES_RECONCILIATION']
+        && incoming().updatedAt == request.time;
+
+      allow delete: if false;
     }
 
+    // 5. Activity Records Collection
     match /activity_records/{activityId} {
-      allow get: if isSignedIn() && isValidId(activityId) && existing().userId == request.auth.uid;
-      allow list: if isSignedIn() && existing().userId == request.auth.uid;
-      allow create: if isSignedIn() &&
-                       isValidId(activityId) &&
-                       incoming().keys().hasAll([
-                         'userId', 'exportOrderId', 'eventType', 'title', 'description',
-                         'createdAt', 'updatedAt'
-                       ]) &&
-                       incoming().keys().hasOnly([
-                         'userId', 'exportOrderId', 'eventType', 'title', 'description',
-                         'createdAt', 'updatedAt'
-                       ]) &&
-                       isValidActivityRecord(incoming());
-      allow update: if false;
-      allow delete: if isSignedIn() && isValidId(activityId) && existing().userId == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && incoming().userId == request.auth.uid
+        && incoming().title is string && incoming().title.size() >= 1 && incoming().title.size() <= 200
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isSignedIn()
+        && existing().userId == request.auth.uid
+        && incoming().userId == existing().userId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time;
+
+      allow delete: if isSignedIn() && existing().userId == request.auth.uid;
     }
   }
 }

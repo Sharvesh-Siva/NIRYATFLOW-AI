@@ -136,8 +136,24 @@ fun DashboardScreen(
     onResetSampleWorkspace: () -> Unit = {}
 ) {
     var selectedPeriod by rememberSaveable { mutableStateOf("1M") }
+    var chartSeriesMode by rememberSaveable { mutableStateOf("INTAKE") } // INTAKE or CAPTURED
     var customQueryText by rememberSaveable { mutableStateOf("") }
-    val metrics = portfolio.performanceMetrics
+    val periodAnalytics = remember(
+        portfolio.orders,
+        portfolio.assessments,
+        portfolio.documents,
+        portfolio.payments,
+        selectedPeriod
+    ) {
+        FinancialCalculationEngine.calculatePeriodAnalytics(
+            orders = portfolio.orders,
+            assessments = portfolio.assessments,
+            documents = portfolio.documents,
+            payments = portfolio.payments,
+            periodCode = selectedPeriod
+        )
+    }
+    val metrics = periodAnalytics.metrics
     val isSample = portfolio.workspaceMode == WorkspaceMode.SAMPLE_BUSINESS
     val riskAlerts = remember(portfolio.orders, portfolio.assessments, portfolio.documents, portfolio.payments) {
         TradeRiskEngine.evaluatePortfolioRisks(
@@ -346,11 +362,20 @@ fun DashboardScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Export Portfolio Value ($selectedPeriod • ${portfolio.businessProfile.reportingCurrency})",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = SecondaryInk
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Export Portfolio Value ($selectedPeriod • ${portfolio.businessProfile.reportingCurrency})",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = SecondaryInk
+                        )
+                        Text(
+                            text = periodAnalytics.periodSummaryText,
+                            fontFamily = JetBrainsMonoFamily,
+                            fontSize = 10.sp,
+                            color = ChampagneAccent,
+                            modifier = Modifier.testTag("dashboard_period_summary_text")
+                        )
+                    }
                     StatusPill(
                         label = "${metrics.totalOrders} Orders • ${metrics.activeOrders} Active",
                         tone = FintechTone.ACCENT_GOLD
@@ -367,7 +392,8 @@ fun DashboardScreen(
                         fontWeight = FontWeight.Bold,
                         fontSize = 36.sp,
                         lineHeight = 40.sp,
-                        color = PrimaryInk
+                        color = PrimaryInk,
+                        modifier = Modifier.testTag("dashboard_kpi_total_order_value")
                     )
                     StatusPill(
                         label = "Avg Margin ${metrics.averageProfitMarginPercent}%",
@@ -376,7 +402,24 @@ fun DashboardScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(6.dp))
+                val growthBadgeText = periodAnalytics.orderValueGrowthPercent?.let { pct ->
+                    val sign = if (pct >= 0.0) "+" else ""
+                    "vs Prev $selectedPeriod: $sign${pct}% (₹${FinancialCalculationEngine.formatInrShort(periodAnalytics.previousPeriodOrderValueInr)})"
+                } ?: if (selectedPeriod == "ALL") {
+                    "All-Time Cumulative Export Portfolio"
+                } else {
+                    "vs Prev $selectedPeriod: New Period Activity (Prev ₹${FinancialCalculationEngine.formatInrShort(periodAnalytics.previousPeriodOrderValueInr)})"
+                }
+                Text(
+                    text = growthBadgeText,
+                    fontFamily = JetBrainsMonoFamily,
+                    fontSize = 11.sp,
+                    color = SecondaryInk,
+                    modifier = Modifier.testTag("dashboard_period_growth_badge")
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
                 RulerTickVisual(
                     progressFraction = (metrics.paymentCompletionRatePercent / 100.0).toFloat()
                 )
@@ -389,7 +432,7 @@ fun DashboardScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     CompactFinancialColumn(
-                        label = "Collected",
+                        label = "Collected ($selectedPeriod)",
                         value = "₹${FinancialCalculationEngine.formatInrShort(metrics.capturedPaymentValueInr)}",
                         subtext = "${metrics.paymentCompletionRatePercent}% captured",
                         valueColor = PositiveEmerald
@@ -401,7 +444,7 @@ fun DashboardScreen(
                         valueColor = WarningAmberTone
                     )
                     CompactFinancialColumn(
-                        label = "Est. Profit",
+                        label = "Est. Profit ($selectedPeriod)",
                         value = "₹${FinancialCalculationEngine.formatInrShort(metrics.totalEstimatedProfitInr)}",
                         subtext = "Net INR",
                         valueColor = PrimaryInk
@@ -410,37 +453,57 @@ fun DashboardScreen(
             }
         }
 
-        // Visualisation 1: Revenue and Collections Trend
+        // Visualisation 1: Live Period-Aggregated Revenue and Collections Trend
         item {
             WarmSurfaceCard(modifier = Modifier.fillMaxWidth()) {
                 SectionHeaderRow(
-                    title = "Revenue & Collections Trend",
+                    title = "Revenue & Collections Trend ($selectedPeriod)",
                     trailingText = "Doc Readiness: ${metrics.documentReadinessRatePercent}%"
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                val chartValues = remember(portfolio.orders, portfolio.assessments) {
-                    if (portfolio.orders.isEmpty()) {
-                        listOf(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-                    } else {
-                        val assessMap = portfolio.assessments.associateBy { it.exportOrderId }
-                        portfolio.orders.take(6).reversed().map { ord ->
-                            val fx = assessMap[ord.id]?.exchangeRate ?: FinancialCalculationEngine.defaultExchangeRateForCurrency(ord.currency)
-                            (ord.orderValue * fx).coerceAtLeast(1.0)
-                        }
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = chartSeriesMode == "INTAKE",
+                        onClick = { chartSeriesMode = "INTAKE" },
+                        label = {
+                            Text(
+                                "Order Intake (₹${FinancialCalculationEngine.formatInrShort(metrics.totalOrderValueInr)})",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontSize = 10.sp
+                            )
+                        },
+                        modifier = Modifier.testTag("chart_mode_intake")
+                    )
+                    FilterChip(
+                        selected = chartSeriesMode == "CAPTURED",
+                        onClick = { chartSeriesMode = "CAPTURED" },
+                        label = {
+                            Text(
+                                "Captured Receipts (₹${FinancialCalculationEngine.formatInrShort(metrics.capturedPaymentValueInr)})",
+                                fontFamily = JetBrainsMonoFamily,
+                                fontSize = 10.sp
+                            )
+                        },
+                        modifier = Modifier.testTag("chart_mode_captured")
+                    )
                 }
-                val chartLabels = remember(portfolio.orders) {
-                    if (portfolio.orders.isEmpty()) {
-                        listOf("01", "02", "03", "04", "05", "06")
-                    } else {
-                        portfolio.orders.take(6).reversed().map { it.orderNumber.takeLast(3) }
-                    }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val activeSeries = if (chartSeriesMode == "CAPTURED") {
+                    periodAnalytics.chartCapturedPaymentsInr
+                } else {
+                    periodAnalytics.chartOrderIntakeInr
                 }
 
                 MinimalFintechChart(
-                    values = chartValues,
-                    labels = chartLabels
+                    values = if (activeSeries.isEmpty()) listOf(0.0, 0.0, 0.0, 0.0) else activeSeries,
+                    labels = if (periodAnalytics.chartBucketLabels.isEmpty()) listOf("P1", "P2", "P3", "P4") else periodAnalytics.chartBucketLabels
                 )
             }
         }
@@ -940,7 +1003,9 @@ fun OrderSummaryListItem(
 fun OrdersHubScreen(
     portfolio: NiryatPortfolioState,
     onSelectOrder: (String) -> Unit,
-    onNavigate: (String) -> Unit
+    onNavigate: (String) -> Unit,
+    onUpdateOrderStatus: (ExportOrder, String) -> Unit = { _, _ -> },
+    onDeleteOrder: (ExportOrder) -> Unit = {}
 ) {
     BackHandler { onNavigate("dashboard") }
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -1134,6 +1199,34 @@ fun OrdersHubScreen(
                             Icon(Icons.Default.Payment, contentDescription = null, tint = PrimaryInk, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(6.dp))
                             Text("PayPal Sandbox", color = PrimaryInk, fontSize = 12.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "UPDATE SHIPMENT / LIFECYCLE STATUS (${twin.order.orderNumber}):",
+                        fontFamily = JetBrainsMonoFamily,
+                        fontSize = 10.sp,
+                        color = SecondaryInk
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(
+                            "ORDER_PROCESSING",
+                            "DOCUMENTATION_PENDING",
+                            "DOCS_READY",
+                            "AWAITING_PAYMENT",
+                            "SHIPMENT_IN_TRANSIT",
+                            "COMPLETED"
+                        ).forEach { st ->
+                            FilterChip(
+                                selected = twin.order.orderStatus == st,
+                                onClick = { onUpdateOrderStatus(twin.order, st) },
+                                label = { Text(st.replace('_', ' '), fontSize = 10.sp, fontFamily = JetBrainsMonoFamily) },
+                                modifier = Modifier.testTag("order_status_chip_$st")
+                            )
                         }
                     }
                 }
@@ -1475,7 +1568,7 @@ fun ProfileAndMoreScreen(
             }
         }
 
-        // PayPal Sandbox Environment & OAuth 2.0 Verification Card
+        // PayPal Sandbox Environment & Demo Mode Status Card
         item {
             WarmSurfaceCard(modifier = Modifier.fillMaxWidth()) {
                 Row(
@@ -1485,33 +1578,55 @@ fun ProfileAndMoreScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "PayPal Sandbox OAuth 2.0 Check",
+                            text = if (isSample) {
+                                "Zero-Cost Demo Payment Engine"
+                            } else {
+                                "PayPal Sandbox Backend Check"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = PrimaryInk
                         )
                         Text(
-                            text = "POST https://api-m.sandbox.paypal.com/v1/oauth2/token",
+                            text = if (isSample) {
+                                "SIMULATED PAYMENT — NOT A REAL PAYPAL TRANSACTION"
+                            } else {
+                                "Authenticated Cloud Function • Zero Client Secret in APK"
+                            },
                             fontFamily = JetBrainsMonoFamily,
                             fontSize = 11.sp,
-                            color = SecondaryInk
+                            color = if (isSample) ChampagneAccent else SecondaryInk
                         )
                     }
                     StatusPill(
-                        label = if (isPayPalConfigured) "KEYS PRESENT" else "MISSING KEYS (FAIL)",
-                        tone = if (isPayPalConfigured) FintechTone.POSITIVE else FintechTone.CRITICAL
+                        label = when {
+                            isSample -> "DEMO MODE ACTIVE"
+                            isPayPalConfigured -> "BACKEND CONFIGURED"
+                            else -> "BACKEND OPTIONAL"
+                        },
+                        tone = when {
+                            isSample -> FintechTone.ACCENT_GOLD
+                            isPayPalConfigured -> FintechTone.POSITIVE
+                            else -> FintechTone.WARNING
+                        }
                     )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = paypalAuthCheckStatus
-                        ?: if (isPayPalConfigured) {
-                            "Credentials detected via BuildConfig. Tap 'Verify OAuth 2.0 Token' to validate against PayPal Sandbox."
+                        ?: if (isSample) {
+                            "Sample Business Workspace runs DemoPaymentService locally (DEMO_PENDING, DEMO_CAPTURED, DEMO_FAILED, DEMO_CANCELLED) with idempotent references. No PAYPAL_BACKEND_BASE_URL, PayPal Client Secret, or Firebase Blaze upgrade is required."
+                        } else if (isPayPalConfigured) {
+                            "Backend Cloud Function endpoint detected via BuildConfig (Zero Client Secret in APK). Tap 'Verify Payment Mode / Backend' to validate."
                         } else {
-                            "FAIL: PAYPAL_SANDBOX_CLIENT_ID and PAYPAL_SANDBOX_CLIENT_SECRET are currently set to placeholder values in .env.example. Add your PayPal Sandbox credentials in the AI Studio Secrets panel."
+                            "Production Mode never silently fakes payments. Configure PAYPAL_BACKEND_BASE_URL for live Sandbox calls, or switch to Sample Business Workspace for Zero-Cost Demo Mode."
                         },
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (paypalAuthCheckStatus?.startsWith("PASS") == true) PositiveEmerald else SecondaryInk
+                    color = if (paypalAuthCheckStatus?.startsWith("PASS") == true || paypalAuthCheckStatus?.startsWith("DEMO") == true) {
+                        PositiveEmerald
+                    } else {
+                        SecondaryInk
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -1528,7 +1643,13 @@ fun ProfileAndMoreScreen(
                 ) {
                     Icon(Icons.Default.VerifiedUser, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Verify PayPal Sandbox OAuth 2.0 Token")
+                    Text(
+                        if (isSample) {
+                            "Verify Zero-Cost Demo Payment Engine"
+                        } else {
+                            "Verify PayPal Sandbox Backend"
+                        }
+                    )
                 }
             }
         }

@@ -864,21 +864,55 @@ fun DocumentCentreScreen(
         val targetDoc = activeUploadDoc
         if (uri != null && targetDoc != null) {
             var displayName = "${targetDoc.documentType.lowercase().replace(' ', '_')}_${order.orderNumber}.pdf"
+            var sizeBytes = 0L
+            val mimeType = context.contentResolver.getType(uri) ?: "application/pdf"
             runCatching {
                 context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                     if (cursor.moveToFirst()) {
                         val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                         if (nameIdx >= 0) displayName = cursor.getString(nameIdx) ?: displayName
+                        val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                        if (sizeIdx >= 0) sizeBytes = cursor.getLong(sizeIdx)
                     }
                 }
             }
+
+            // Copy file to app-local export_docs storage and compute SHA-256 checksum
+            var persistedRef = uri.toString()
+            var sha256Hex = ""
+            runCatching {
+                val docsDir = java.io.File(context.filesDir, "export_docs/${order.orderNumber}")
+                docsDir.mkdirs()
+                val safeFileName = "v${targetDoc.versionNumber + 1}_${displayName.replace(Regex("[^a-zA-Z0-9._-]"), "_")}"
+                val destFile = java.io.File(docsDir, safeFileName)
+                val digest = java.security.MessageDigest.getInstance("SHA-256")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    destFile.outputStream().use { output ->
+                        val buffer = ByteArray(8192)
+                        var read: Int
+                        var totalRead = 0L
+                        while (input.read(buffer).also { read = it } != -1) {
+                            totalRead += read
+                            if (totalRead <= 15L * 1024L * 1024L) {
+                                output.write(buffer, 0, read)
+                                digest.update(buffer, 0, read)
+                            }
+                        }
+                        if (sizeBytes <= 0L) sizeBytes = totalRead
+                    }
+                }
+                persistedRef = destFile.absolutePath
+                sha256Hex = digest.digest().joinToString("") { "%02x".format(it) }
+            }
+
+            val sizeKb = (sizeBytes / 1024L).coerceAtLeast(1L)
             onUpdateDocument(
                 targetDoc,
                 targetDoc.requirementLevel,
                 "UPLOADED",
                 displayName,
-                uri.toString(),
-                "Uploaded via Android Document Picker"
+                persistedRef,
+                "Uploaded v${targetDoc.versionNumber + 1} ($mimeType • ${sizeKb}KB • SHA256:${sha256Hex.take(12)})"
             )
         }
     }
@@ -911,11 +945,19 @@ fun DocumentCentreScreen(
                         fontFamily = JetBrainsMonoFamily
                     )
                     Text(
-                        text = "Requirement: ${currentPreviewDoc.requirementLevel} • Status: ${currentPreviewDoc.status}",
+                        text = "Requirement: ${currentPreviewDoc.requirementLevel} • Status: ${currentPreviewDoc.status} • Version: v${currentPreviewDoc.versionNumber}",
                         style = MaterialTheme.typography.bodySmall,
                         color = SecondaryInk,
                         fontFamily = JetBrainsMonoFamily
                     )
+                    if (currentPreviewDoc.sha256Checksum.isNotBlank()) {
+                        Text(
+                            text = "SHA-256: ${currentPreviewDoc.sha256Checksum.take(24)}...",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SecondaryInk,
+                            fontFamily = JetBrainsMonoFamily
+                        )
+                    }
                     if (currentPreviewDoc.reviewerNote.isNotBlank()) {
                         Text(
                             text = "Reviewer Notes: ${currentPreviewDoc.reviewerNote}",
@@ -1038,7 +1080,16 @@ fun DocumentCentreScreen(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = "Uploaded files are not counted as verified until reviewed. Internal checklist readiness does not constitute official customs, ICEGATE, or DGFT regulatory approval.",
+                                text = "LOCALLY STORED ON DEVICE — NOT UPLOADED TO CLOUD OR OFFICIALLY CERTIFIED",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ChampagneAccent,
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.testTag("local_document_storage_notice")
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Files are stored in app-local storage (filesDir/export_docs) with SHA-256 checksums and version history (v1, v2...). Uploaded files are not counted as verified until reviewed, and checklist readiness does not constitute official customs, ICEGATE, or DGFT regulatory approval.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = SecondaryInk
                             )
@@ -1115,7 +1166,7 @@ fun DocumentCentreScreen(
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
-                                    text = doc.documentType,
+                                    text = "${doc.documentType} (v${doc.versionNumber})",
                                     style = MaterialTheme.typography.titleMedium,
                                     color = PrimaryInk
                                 )

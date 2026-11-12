@@ -146,18 +146,18 @@ fun StatusPill(
 
 fun statusToneFor(status: String): FintechTone {
     return when (status.uppercase()) {
-        "COMPLETED", "VERIFIED", "CAPTURED", "VALIDATED", "PASS", "RESOLVED" -> FintechTone.POSITIVE
+        "COMPLETED", "VERIFIED", "CAPTURED", "DEMO_CAPTURED", "VALIDATED", "PASS", "RESOLVED" -> FintechTone.POSITIVE
         "SHIPMENT_IN_PROGRESS", "PROCESSING", "FINANCIALLY_ASSESSED", "DOCS_READY" -> FintechTone.TRADE_BLUE
         "IN_PROGRESS", "UPLOADED", "UNDER_REVIEW", "APPROVED", "PAYMENT_INITIATED", "CREATED" -> FintechTone.ACCENT_GOLD
-        "PENDING", "PENDING_APPROVAL", "MISSING", "OPTIONAL", "MEDIUM", "LOW" -> FintechTone.WARNING
-        "FAILED", "REJECTED", "REUPLOAD_REQUIRED", "CANCELLED", "REQUIRES_RECONCILIATION", "HIGH", "CRITICAL", "FAIL" -> FintechTone.CRITICAL
+        "PENDING", "PENDING_APPROVAL", "DEMO_PENDING", "MISSING", "OPTIONAL", "MEDIUM", "LOW" -> FintechTone.WARNING
+        "FAILED", "DEMO_FAILED", "REJECTED", "REUPLOAD_REQUIRED", "CANCELLED", "DEMO_CANCELLED", "REQUIRES_RECONCILIATION", "HIGH", "CRITICAL", "FAIL" -> FintechTone.CRITICAL
         else -> FintechTone.NEUTRAL
     }
 }
 
 @Composable
 fun PeriodSelectorBar(
-    periods: List<String> = listOf("1W", "1M", "3M", "1Y", "ALL"),
+    periods: List<String> = listOf("1D", "1W", "1M", "3M", "1Y", "ALL"),
     selectedPeriod: String,
     onSelectPeriod: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -190,6 +190,7 @@ fun PeriodSelectorBar(
                     )
                     .clickable { onSelectPeriod(period) }
                     .padding(vertical = 7.dp)
+                    .testTag("period_pill_$period")
             ) {
                 Text(
                     text = period,

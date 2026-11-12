@@ -14,23 +14,25 @@ enum class WorkspaceMode {
     SAMPLE_BUSINESS
 }
 
-data class BusinessProfile(
-    val businessId: String = "biz_prod_default",
-    val businessName: String = "Niryat Global Precision Exports Pvt. Ltd.",
-    val businessType: String = "MSME Manufacturer & Merchant Exporter",
-    val role: String = "OWNER",
-    val primaryBase: String = "Chennai, Tamil Nadu, India",
-    val contactEmail: String = "exports@niryatflow.in",
-    val contactPhone: String = "+91 44 2250 8841",
-    val primaryCategories: String = "Textiles, Engineering Components, Spices & Agro",
+data class BusinessWorkspaceProfile(
+    val businessId: String = "niryat_workspace_001",
+    val businessName: String,
+    val businessType: String,
+    val primaryBase: String,
+    val contactEmail: String,
+    val productCategories: String,
     val reportingCurrency: String = "INR",
-    val website: String = "https://niryatflow.example.com",
-    val exportExperienceYears: Int = 8,
+    val role: String = "Export Operations Lead",
+    val iecReference: String = "0419084721 (Demo MSME Reference)",
+    val gstStateCode: String = "33 - Tamil Nadu",
     val isSampleWorkspace: Boolean = false
-)
+) {
+    val primaryCategories: String
+        get() = productCategories
+}
 
 data class SampleWorkspaceSeedBundle(
-    val profile: BusinessProfile,
+    val profile: BusinessWorkspaceProfile,
     val orders: List<ExportOrder>,
     val assessments: List<FinancialAssessment>,
     val documents: List<DocumentRecord>,
@@ -39,588 +41,58 @@ data class SampleWorkspaceSeedBundle(
 )
 
 /**
- * Isolated Sample Business Workspace Seeder (Sections 2, 10 & 11 of Master Prompt).
- * Represents fictional Indian MSME exporter: Tamil Nadu Global Exports Pvt. Ltd. (Chennai, Tamil Nadu).
- * Preloads 6 export orders, 6 international buyers, 6 financial breakdowns, 30 document records,
- * 6 payment records, and 22 activity events across multiple currencies (EUR, USD, AED, SGD, GBP, JPY).
- * Strictly isolated from production customer data.
+ * Isolated Sample Business Workspace Seeder for:
+ * "Tamil Nadu Global Exports Pvt. Ltd." (Chennai, Tamil Nadu, India)
+ *
+ * Strictly isolated from Production Firestore collections.
+ * Includes staggered timestamps across 1D, 1W, 1M, 3M, and 1Y so the live
+ * dashboard time-period selector filters and recalculates distinct KPIs and time-series buckets.
  */
 object SampleBusinessWorkspaceSeeder {
 
-    const val SAMPLE_USER_ID = "sample_workspace_tn_global_exports"
+    const val SAMPLE_USER_ID = "sample_workspace_tn_exports"
+    private const val HOUR_MS = 60L * 60L * 1000L
+    private const val DAY_MS = 24L * HOUR_MS
 
-    fun defaultSampleBusinessProfile(): BusinessProfile = BusinessProfile(
-        businessId = "biz_sample_tn_global_001",
-        businessName = "Tamil Nadu Global Exports Pvt. Ltd.",
-        businessType = "Mid-Sized MSME Star Export House (Sample Workspace)",
-        role = "OWNER",
-        primaryBase = "Guindy Industrial Estate, Chennai, Tamil Nadu, India",
-        contactEmail = "operations@tnglobalexports.sample.in",
-        contactPhone = "+91 44 4812 9000",
-        primaryCategories = "Textiles, Automotive Components, Spices, Electronics, Handicrafts, Agro",
-        reportingCurrency = "INR",
-        website = "https://tnglobalexports.sample.in",
-        exportExperienceYears = 12,
-        isSampleWorkspace = true
-    )
-
-    private fun tsSecondsAgo(secondsAgo: Long): Timestamp {
-        val ms = System.currentTimeMillis() - (secondsAgo * 1000L)
-        return Timestamp(Date(ms))
+    fun defaultSampleBusinessProfile(): BusinessWorkspaceProfile {
+        return BusinessWorkspaceProfile(
+            businessName = "Tamil Nadu Global Exports Pvt. Ltd.",
+            businessType = "MSME Export Company",
+            primaryBase = "Chennai, Tamil Nadu, India",
+            contactEmail = "exports@tnglobalexports.in",
+            productCategories = "Textiles, Leather Goods, Spices, Engineering Components",
+            reportingCurrency = "INR",
+            iecReference = "0419084721 (Sample MSME Reference)",
+            gstStateCode = "33 - Tamil Nadu",
+            isSampleWorkspace = true
+        )
     }
 
-    fun createSeedBundle(): SampleWorkspaceSeedBundle {
+    fun defaultProductionProfile(userEmail: String): BusinessWorkspaceProfile {
+        return BusinessWorkspaceProfile(
+            businessName = "Production Export Workspace",
+            businessType = "MSME Exporter / Manufacturer",
+            primaryBase = "Chennai / Mumbai, India",
+            contactEmail = userEmail.ifBlank { "exporter@niryatflow.in" },
+            productCategories = "Apparel, Agro Commodities, Engineering Goods",
+            reportingCurrency = "INR",
+            iecReference = "Configure in Business Profile",
+            gstStateCode = "India MSME",
+            isSampleWorkspace = false
+        )
+    }
+
+    private fun tsAgo(nowMillis: Long, offsetMillis: Long): Timestamp {
+        return Timestamp(Date((nowMillis - offsetMillis).coerceAtLeast(1_000_000L)))
+    }
+
+    fun createSeedBundle(nowMillis: Long = System.currentTimeMillis()): SampleWorkspaceSeedBundle {
         val profile = defaultSampleBusinessProfile()
-
-        // 6 Realistic Fictional Export Orders (Matching Section 10)
-        val orders = listOf(
-            // ORDER 001: Textile products -> Germany (EUR) | Shipment In Progress
-            ExportOrder(
-                id = "sample_ord_001",
-                userId = SAMPLE_USER_ID,
-                orderNumber = "ORDER-001",
-                exporterName = profile.businessName,
-                exporterContact = profile.contactEmail,
-                exporterAddress = profile.primaryBase,
-                buyerName = "RheinTextil Handels GmbH [Sample]",
-                buyerCountry = "Germany",
-                buyerContact = "procurement@rheintextil.sample.de",
-                buyerAddress = "Speicherstadt 18, 20457 Hamburg, Germany",
-                productName = "Organic Combed Cotton Knitwear & Apparel",
-                productDescription = "GOTS Certified 180 GSM Organic Cotton Interlock Apparel (HS: 6109.10.00)",
-                quantity = 4500.0,
-                unit = "PCS",
-                unitPrice = 14.80,
-                orderValue = 66600.0,
-                currency = "EUR",
-                incoterm = "CIF",
-                destinationPort = "Hamburg (DEHAM)",
-                orderDate = "2026-04-02",
-                expectedShipmentDate = "2026-05-18",
-                paymentTerms = "40% Advance via PayPal Sandbox, 60% against BL Copy",
-                advancePercentage = 40.0,
-                orderStatus = "SHIPMENT_IN_PROGRESS",
-                extractionSource = "AI_EXTRACTED_CONFIRMED",
-                createdAt = tsSecondsAgo(86400L * 18),
-                updatedAt = tsSecondsAgo(3600L * 4)
-            ),
-            // ORDER 002: Automotive components -> United States (USD) | Payment Completed
-            ExportOrder(
-                id = "sample_ord_002",
-                userId = SAMPLE_USER_ID,
-                orderNumber = "ORDER-002",
-                exporterName = profile.businessName,
-                exporterContact = profile.contactEmail,
-                exporterAddress = profile.primaryBase,
-                buyerName = "Midwest AutoSystems Corp. [Sample]",
-                buyerCountry = "United States",
-                buyerContact = "supplychain@midwestauto.sample.us",
-                buyerAddress = "4400 Renaissance Dr, Detroit, MI 48243, USA",
-                productName = "CNC Precision Forged Transmission Shafts",
-                productDescription = "SAE 8620 Alloy Steel Case-Hardened Drive Shafts (HS: 8708.99.00)",
-                quantity = 2000.0,
-                unit = "PCS",
-                unitPrice = 42.50,
-                orderValue = 85000.0,
-                currency = "USD",
-                incoterm = "FOB",
-                destinationPort = "Newark / New York (USNYC)",
-                orderDate = "2026-04-08",
-                expectedShipmentDate = "2026-05-22",
-                paymentTerms = "50% Advance, 50% Prior to Vessel Departure",
-                advancePercentage = 50.0,
-                orderStatus = "PAYMENT_COMPLETED",
-                extractionSource = "AI_EXTRACTED_CONFIRMED",
-                createdAt = tsSecondsAgo(86400L * 15),
-                updatedAt = tsSecondsAgo(3600L * 8)
-            ),
-            // ORDER 003: Spices -> United Arab Emirates (AED) | Documentation Pending
-            ExportOrder(
-                id = "sample_ord_003",
-                userId = SAMPLE_USER_ID,
-                orderNumber = "ORDER-003",
-                exporterName = profile.businessName,
-                exporterContact = profile.contactEmail,
-                exporterAddress = profile.primaryBase,
-                buyerName = "Al Noor Foodstuff Trading LLC [Sample]",
-                buyerCountry = "United Arab Emirates",
-                buyerContact = "imports@alnoorfoods.sample.ae",
-                buyerAddress = "Al Ras Deira Spice Souk Sector 4, Dubai, UAE",
-                productName = "Erode High-Curcumin Turmeric & Green Cardamom",
-                productDescription = "5.2% Curcumin Finger Turmeric & 8mm Bold Cardamom (HS: 0910.30.20)",
-                quantity = 12000.0,
-                unit = "KG",
-                unitPrice = 18.50,
-                orderValue = 222000.0,
-                currency = "AED",
-                incoterm = "CIF",
-                destinationPort = "Jebel Ali (AEJEA)",
-                orderDate = "2026-04-14",
-                expectedShipmentDate = "2026-05-25",
-                paymentTerms = "30% Advance, 70% CAD against Phytosanitary Cert",
-                advancePercentage = 30.0,
-                orderStatus = "DOCUMENTATION_PENDING",
-                extractionSource = "MANUAL",
-                createdAt = tsSecondsAgo(86400L * 11),
-                updatedAt = tsSecondsAgo(3600L * 12)
-            ),
-            // ORDER 004: Electronic components -> Singapore (SGD) | Ready for Payment
-            ExportOrder(
-                id = "sample_ord_004",
-                userId = SAMPLE_USER_ID,
-                orderNumber = "ORDER-004",
-                exporterName = profile.businessName,
-                exporterContact = profile.contactEmail,
-                exporterAddress = profile.primaryBase,
-                buyerName = "LionCity Microelectronics Pte Ltd [Sample]",
-                buyerCountry = "Singapore",
-                buyerContact = "sourcing@lioncitymicro.sample.sg",
-                buyerAddress = "60 Ayer Rajah Crescent, Singapore 139951",
-                productName = "Industrial Multi-Layer IoT Sensor PCB Assemblies",
-                productDescription = "6-Layer RoHS Immersion Gold Industrial Controller PCBs (HS: 8534.00.00)",
-                quantity = 1500.0,
-                unit = "PCS",
-                unitPrice = 64.00,
-                orderValue = 96000.0,
-                currency = "SGD",
-                incoterm = "FCA",
-                destinationPort = "Singapore Changi Air Cargo (SGSIN)",
-                orderDate = "2026-04-18",
-                expectedShipmentDate = "2026-05-28",
-                paymentTerms = "35% Advance via PayPal Sandbox, 65% Net 30",
-                advancePercentage = 35.0,
-                orderStatus = "READY_FOR_PAYMENT",
-                extractionSource = "AI_EXTRACTED_CONFIRMED",
-                createdAt = tsSecondsAgo(86400L * 8),
-                updatedAt = tsSecondsAgo(3600L * 16)
-            ),
-            // ORDER 005: Handicraft products -> United Kingdom (GBP) | Completed
-            ExportOrder(
-                id = "sample_ord_005",
-                userId = SAMPLE_USER_ID,
-                orderNumber = "ORDER-005",
-                exporterName = profile.businessName,
-                exporterContact = profile.contactEmail,
-                exporterAddress = profile.primaryBase,
-                buyerName = "Thames Heritage Living Ltd [Sample]",
-                buyerCountry = "United Kingdom",
-                buyerContact = "buyers@thamesheritage.sample.co.uk",
-                buyerAddress = "14 Clerkenwell Green, London EC1R 0DP, UK",
-                productName = "Thanjavur Artisanal Brass & Rosewood Decor Collection",
-                productDescription = "Handcrafted Solid Brass Lamps & Carved Wood Panels (HS: 8306.29.90)",
-                quantity = 850.0,
-                unit = "SETS",
-                unitPrice = 52.00,
-                orderValue = 44200.0,
-                currency = "GBP",
-                incoterm = "CIF",
-                destinationPort = "Felixstowe (GBFXT)",
-                orderDate = "2026-03-19",
-                expectedShipmentDate = "2026-04-20",
-                paymentTerms = "40% Advance, 60% Completed on Delivery",
-                advancePercentage = 40.0,
-                orderStatus = "COMPLETED",
-                extractionSource = "MANUAL",
-                createdAt = tsSecondsAgo(86400L * 32),
-                updatedAt = tsSecondsAgo(86400L * 3)
-            ),
-            // ORDER 006: Processed agricultural products -> Japan (JPY) | Processing
-            ExportOrder(
-                id = "sample_ord_006",
-                userId = SAMPLE_USER_ID,
-                orderNumber = "ORDER-006",
-                exporterName = profile.businessName,
-                exporterContact = profile.contactEmail,
-                exporterAddress = profile.primaryBase,
-                buyerName = "Sakura Shokuhin Co., Ltd. [Sample]",
-                buyerCountry = "Japan",
-                buyerContact = "trade@sakurashokuhin.sample.jp",
-                buyerAddress = "2-15 Minatomirai, Nishi-ku, Yokohama 220-0012, Japan",
-                productName = "Cold-Pressed Organic Moringa & Alphonso Mango Pulp",
-                productDescription = "JAS Organic Certified Aseptic Mango Pulp & Moringa Powder (HS: 2008.99.11)",
-                quantity = 18000.0,
-                unit = "KG",
-                unitPrice = 490.0,
-                orderValue = 8820000.0,
-                currency = "JPY",
-                incoterm = "CFR",
-                destinationPort = "Yokohama (JPYOK)",
-                orderDate = "2026-04-24",
-                expectedShipmentDate = "2026-06-05",
-                paymentTerms = "30% Advance, 70% Irrevocable Sight LC",
-                advancePercentage = 30.0,
-                orderStatus = "PROCESSING",
-                extractionSource = "AI_EXTRACTED_CONFIRMED",
-                createdAt = tsSecondsAgo(86400L * 4),
-                updatedAt = tsSecondsAgo(3600L * 2)
-            )
-        )
-
-        // 6 Deterministic Financial Breakdowns
-        val assessments = orders.map { ord ->
-            val fx = FinancialCalculationEngine.defaultExchangeRateForCurrency(ord.currency)
-            val convertedInr = ord.orderValue * fx
-            FinancialCalculationEngine.calculateAssessment(
-                userId = SAMPLE_USER_ID,
-                exportOrderId = ord.id,
-                existingId = "sample_fin_${ord.id}",
-                quantity = ord.quantity,
-                unitPrice = ord.unitPrice,
-                currency = ord.currency,
-                exchangeRate = fx,
-                advancePercentage = ord.advancePercentage,
-                paymentFeePercentage = 3.2,
-                paymentFixedFee = 0.30,
-                procurementCostInr = convertedInr * 0.54,
-                logisticsCostInr = convertedInr * 0.08,
-                packagingCostInr = convertedInr * 0.03,
-                otherCostsInr = convertedInr * 0.02,
-                assumptionsNote = "Sample Workspace deterministic assessment (${ord.currency}/INR @ ₹$fx, manually verified)."
-            )
-        }
-
-        // 30 Document Records (5 per order across all 6 orders)
-        val docTemplates = listOf(
-            "Commercial Invoice" to "REQUIRED",
-            "Packing List" to "REQUIRED",
-            "Shipping Bill" to "REQUIRED",
-            "Bill of Lading / Air Waybill" to "REQUIRED",
-            "Certificate of Origin" to "REQUIRED"
-        )
-        val documents = mutableListOf<DocumentRecord>()
-        orders.forEach { ord ->
-            docTemplates.forEachIndexed { idx, (docType, reqLevel) ->
-                val status = when (ord.orderNumber) {
-                    "ORDER-001" -> if (idx < 4) "VERIFIED" else "UPLOADED"
-                    "ORDER-002" -> "VERIFIED"
-                    "ORDER-003" -> when (idx) {
-                        0, 1 -> "VERIFIED"
-                        2 -> "UNDER_REVIEW"
-                        else -> "MISSING"
-                    }
-                    "ORDER-004" -> "VERIFIED"
-                    "ORDER-005" -> "VERIFIED"
-                    else -> if (idx == 0) "UPLOADED" else "MISSING"
-                }
-                val cleanSlug = docType.lowercase().replace(" / ", "_").replace(' ', '_')
-                documents.add(
-                    DocumentRecord(
-                        id = "${ord.id}_doc_${idx + 1}",
-                        userId = SAMPLE_USER_ID,
-                        exportOrderId = ord.id,
-                        documentType = docType,
-                        requirementLevel = reqLevel,
-                        status = status,
-                        fileName = if (status == "MISSING") "" else "${cleanSlug}_${ord.orderNumber.lowercase()}.pdf",
-                        fileReference = if (status == "MISSING") "" else "sample://tnglobalexports/${ord.orderNumber}/$cleanSlug.pdf",
-                        reviewerNote = when (status) {
-                            "VERIFIED" -> "Internally validated by Tamil Nadu Global Exports compliance desk [Sample]"
-                            "UPLOADED", "UNDER_REVIEW" -> "Uploaded; awaiting internal compliance cross-check [Sample]"
-                            else -> "Required prior to customs let-export order [Sample]"
-                        },
-                        createdAt = ord.createdAt,
-                        updatedAt = ord.updatedAt
-                    )
-                )
-            }
-        }
-
-        // 6 Historical Payment Records
-        val payments = listOf(
-            PaymentRecord(
-                id = "sample_pay_001",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_001",
-                paypalOrderId = "PAYID-SAMPLE-DE001A",
-                paypalCaptureId = "CAP-SAMPLE-99201DE",
-                approvalUrl = "https://www.sandbox.paypal.com/checkoutnow?token=PAYID-SAMPLE-DE001A",
-                amount = 26640.0,
-                currency = "EUR",
-                paymentType = "ADVANCE",
-                paymentStatus = "CAPTURED",
-                verificationDetails = "40% Advance captured in Sandbox [Sample Fictional Transaction]",
-                createdAt = tsSecondsAgo(86400L * 14),
-                updatedAt = tsSecondsAgo(86400L * 13)
-            ),
-            PaymentRecord(
-                id = "sample_pay_002",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_002",
-                paypalOrderId = "PAYID-SAMPLE-US002F",
-                paypalCaptureId = "CAP-SAMPLE-88412US",
-                approvalUrl = "https://www.sandbox.paypal.com/checkoutnow?token=PAYID-SAMPLE-US002F",
-                amount = 85000.0,
-                currency = "USD",
-                paymentType = "FULL",
-                paymentStatus = "CAPTURED",
-                verificationDetails = "100% Order Value verified & captured [Sample Fictional Transaction]",
-                createdAt = tsSecondsAgo(86400L * 10),
-                updatedAt = tsSecondsAgo(86400L * 9)
-            ),
-            PaymentRecord(
-                id = "sample_pay_003",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_003",
-                paypalOrderId = "PAYID-SAMPLE-AE003P",
-                paypalCaptureId = "",
-                approvalUrl = "https://www.sandbox.paypal.com/checkoutnow?token=PAYID-SAMPLE-AE003P",
-                amount = 66600.0,
-                currency = "AED",
-                paymentType = "ADVANCE",
-                paymentStatus = "PENDING_APPROVAL",
-                verificationDetails = "30% Advance invoice issued; awaiting buyer approval [Sample]",
-                createdAt = tsSecondsAgo(86400L * 6),
-                updatedAt = tsSecondsAgo(86400L * 6)
-            ),
-            PaymentRecord(
-                id = "sample_pay_004",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_004",
-                paypalOrderId = "PAYID-SAMPLE-SG004R",
-                paypalCaptureId = "",
-                approvalUrl = "https://www.sandbox.paypal.com/checkoutnow?token=PAYID-SAMPLE-SG004R",
-                amount = 33600.0,
-                currency = "SGD",
-                paymentType = "ADVANCE",
-                paymentStatus = "APPROVED",
-                verificationDetails = "Buyer approved 35% advance; ready for backend capture [Sample]",
-                createdAt = tsSecondsAgo(86400L * 4),
-                updatedAt = tsSecondsAgo(86400L * 2)
-            ),
-            PaymentRecord(
-                id = "sample_pay_005",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_005",
-                paypalOrderId = "PAYID-SAMPLE-GB005C",
-                paypalCaptureId = "CAP-SAMPLE-77105GB",
-                approvalUrl = "https://www.sandbox.paypal.com/checkoutnow?token=PAYID-SAMPLE-GB005C",
-                amount = 44200.0,
-                currency = "GBP",
-                paymentType = "FULL",
-                paymentStatus = "CAPTURED",
-                verificationDetails = "Full GBP settlement captured upon Felixstowe delivery [Sample]",
-                createdAt = tsSecondsAgo(86400L * 20),
-                updatedAt = tsSecondsAgo(86400L * 5)
-            ),
-            PaymentRecord(
-                id = "sample_pay_006",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_006",
-                paypalOrderId = "PAYID-SAMPLE-JP006N",
-                paypalCaptureId = "",
-                approvalUrl = "https://www.sandbox.paypal.com/checkoutnow?token=PAYID-SAMPLE-JP006N",
-                amount = 2646000.0,
-                currency = "JPY",
-                paymentType = "ADVANCE",
-                paymentStatus = "PENDING_APPROVAL",
-                verificationDetails = "30% Advance initiated for Yokohama agro shipment [Sample]",
-                createdAt = tsSecondsAgo(86400L * 2),
-                updatedAt = tsSecondsAgo(86400L * 1)
-            )
-        )
-
-        // 22 Realistic Operational Activity Events
-        val activities = listOf(
-            ActivityRecord(
-                id = "sample_act_01",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_006",
-                eventType = "ORDER_CREATED",
-                title = "ORDER-006 Created (Japan • JPY 8,820,000)",
-                description = "Cold-Pressed Organic Moringa & Alphonso Mango Pulp for Sakura Shokuhin Co., Ltd. [Sample]",
-                createdAt = tsSecondsAgo(3600L * 3)
-            ),
-            ActivityRecord(
-                id = "sample_act_02",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_004",
-                eventType = "PAYMENT_APPROVED",
-                title = "ORDER-004 Buyer Approved SGD 33,600 Advance",
-                description = "LionCity Microelectronics approved PayPal Sandbox checkout PAYID-SAMPLE-SG004R; ready for capture.",
-                createdAt = tsSecondsAgo(3600L * 7)
-            ),
-            ActivityRecord(
-                id = "sample_act_03",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_001",
-                eventType = "SHIPMENT_DISPATCHED",
-                title = "ORDER-001 Vessel Departed Chennai Port -> Hamburg",
-                description = "4,500 PCS Organic Cotton Knitwear loaded on container vessel; Certificate of Origin uploaded.",
-                createdAt = tsSecondsAgo(3600L * 14)
-            ),
-            ActivityRecord(
-                id = "sample_act_04",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_003",
-                eventType = "DOC_REVIEW",
-                title = "ORDER-003 Shipping Bill Under Compliance Review",
-                description = "Al Noor Foodstuff UAE spice shipment awaiting Bill of Lading & Certificate of Origin.",
-                createdAt = tsSecondsAgo(3600L * 20)
-            ),
-            ActivityRecord(
-                id = "sample_act_05",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_002",
-                eventType = "PAYMENT_CAPTURED",
-                title = "ORDER-002 Full Settlement Captured (USD 85,000)",
-                description = "Capture ID CAP-SAMPLE-88412US verified for Midwest AutoSystems Corp. (Detroit, USA).",
-                createdAt = tsSecondsAgo(86400L * 2)
-            ),
-            ActivityRecord(
-                id = "sample_act_06",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_005",
-                eventType = "ORDER_COMPLETED",
-                title = "ORDER-005 Delivered & Closed (GBP 44,200)",
-                description = "Thames Heritage Living Ltd UK handicraft export completed with 100% document & payment verification.",
-                createdAt = tsSecondsAgo(86400L * 3)
-            ),
-            ActivityRecord(
-                id = "sample_act_07",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_004",
-                eventType = "DOCS_READY",
-                title = "ORDER-004 All 5 Mandatory Documents Verified",
-                description = "100% Document Readiness achieved for Singapore Changi air cargo dispatch.",
-                createdAt = tsSecondsAgo(86400L * 4)
-            ),
-            ActivityRecord(
-                id = "sample_act_08",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_001",
-                eventType = "PAYMENT_CAPTURED",
-                title = "ORDER-001 Advance Captured (EUR 26,640)",
-                description = "Capture ID CAP-SAMPLE-99201DE reconciled for RheinTextil Handels GmbH.",
-                createdAt = tsSecondsAgo(86400L * 6)
-            ),
-            ActivityRecord(
-                id = "sample_act_09",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_006",
-                eventType = "PAYMENT_CAPTURED",
-                title = "ORDER-006 Advance Captured (JPY 2,520,000)",
-                description = "Capture ID CAP-SAMPLE-55109JP verified for Sakura AgriFoods Trading Co. (Tokyo).",
-                createdAt = tsSecondsAgo(86400L * 7)
-            ),
-            ActivityRecord(
-                id = "sample_act_10",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_003",
-                eventType = "PAYMENT_CAPTURED",
-                title = "ORDER-003 35% Advance Captured (AED 49,980)",
-                description = "Capture ID CAP-SAMPLE-77304AE reconciled for Al Noor Foodstuff Trading LLC.",
-                createdAt = tsSecondsAgo(86400L * 8)
-            ),
-            ActivityRecord(
-                id = "sample_act_11",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_002",
-                eventType = "DOCS_READY",
-                title = "ORDER-002 All 5 Mandatory Documents Verified",
-                description = "Commercial Invoice, Packing List, BL, Shipping Bill & Certificate of Origin verified for USA shipment.",
-                createdAt = tsSecondsAgo(86400L * 9)
-            ),
-            ActivityRecord(
-                id = "sample_act_12",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_005",
-                eventType = "PAYMENT_CAPTURED",
-                title = "ORDER-005 Full Settlement Captured (GBP 44,200)",
-                description = "Capture ID CAP-SAMPLE-66418UK reconciled for Thames Heritage Living Ltd (London).",
-                createdAt = tsSecondsAgo(86400L * 10)
-            ),
-            ActivityRecord(
-                id = "sample_act_13",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_004",
-                eventType = "FINANCE_ASSESSED",
-                title = "ORDER-004 Financial Viability Assessed (21.65% Margin)",
-                description = "Deterministic INR settlement calculated at 1 SGD = ₹62.70 for Merlion MicroTech Pte. Ltd.",
-                createdAt = tsSecondsAgo(86400L * 11)
-            ),
-            ActivityRecord(
-                id = "sample_act_14",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_001",
-                eventType = "FINANCE_ASSESSED",
-                title = "ORDER-001 Financial Viability Assessed (20.99% Margin)",
-                description = "Deterministic INR settlement calculated at 1 EUR = ₹91.15 for RheinTextil Handels GmbH.",
-                createdAt = tsSecondsAgo(86400L * 12)
-            ),
-            ActivityRecord(
-                id = "sample_act_15",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_002",
-                eventType = "FINANCE_ASSESSED",
-                title = "ORDER-002 Financial Viability Assessed (21.97% Margin)",
-                description = "Deterministic INR settlement calculated at 1 USD = ₹84.20 for Midwest AutoSystems Corp.",
-                createdAt = tsSecondsAgo(86400L * 13)
-            ),
-            ActivityRecord(
-                id = "sample_act_16",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_003",
-                eventType = "FINANCE_ASSESSED",
-                title = "ORDER-003 Financial Viability Assessed (21.31% Margin)",
-                description = "Deterministic INR settlement calculated at 1 AED = ₹22.93 for Al Noor Foodstuff Trading LLC.",
-                createdAt = tsSecondsAgo(86400L * 14)
-            ),
-            ActivityRecord(
-                id = "sample_act_17",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_005",
-                eventType = "FINANCE_ASSESSED",
-                title = "ORDER-005 Financial Viability Assessed (24.89% Margin)",
-                description = "Deterministic INR settlement calculated at 1 GBP = ₹106.80 for Thames Heritage Living Ltd.",
-                createdAt = tsSecondsAgo(86400L * 15)
-            ),
-            ActivityRecord(
-                id = "sample_act_18",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_006",
-                eventType = "ORDER_CREATED",
-                title = "ORDER-006 Created via Gemini AI PO Extraction",
-                description = "Sakura AgriFoods Trading Co. (Japan) order for 15,000 KG Alphonso Mango Pulp confirmed.",
-                createdAt = tsSecondsAgo(86400L * 16)
-            ),
-            ActivityRecord(
-                id = "sample_act_19",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_004",
-                eventType = "ORDER_CREATED",
-                title = "ORDER-004 Created via Gemini AI PO Extraction",
-                description = "Merlion MicroTech Pte. Ltd. (Singapore) order for 3,000 Industrial Sensor PCBs confirmed.",
-                createdAt = tsSecondsAgo(86400L * 18)
-            ),
-            ActivityRecord(
-                id = "sample_act_20",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_003",
-                eventType = "ORDER_CREATED",
-                title = "ORDER-003 Created via Manual Intake",
-                description = "Al Noor Foodstuff Trading LLC (UAE) order for 8,000 KG Malabar Black Pepper & Cardamom registered.",
-                createdAt = tsSecondsAgo(86400L * 20)
-            ),
-            ActivityRecord(
-                id = "sample_act_21",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_001",
-                eventType = "ORDER_CREATED",
-                title = "ORDER-001 Created via Gemini AI PO Extraction",
-                description = "RheinTextil Handels GmbH (Germany) order for 4,500 PCS Organic Cotton Knitwear confirmed.",
-                createdAt = tsSecondsAgo(86400L * 22)
-            ),
-            ActivityRecord(
-                id = "sample_act_22",
-                userId = SAMPLE_USER_ID,
-                exportOrderId = "sample_ord_002",
-                eventType = "ORDER_CREATED",
-                title = "ORDER-002 Created via Gemini AI PO Extraction",
-                description = "Midwest AutoSystems Corp. (USA) order for 2,500 CNC Machined Stainless Flanges confirmed.",
-                createdAt = tsSecondsAgo(86400L * 25)
-            )
-        )
-
+        val orders = buildSampleOrders(profile.businessName, nowMillis)
+        val assessments = buildSampleAssessments(orders, nowMillis)
+        val documents = buildSampleDocuments(orders, nowMillis)
+        val payments = buildSamplePayments(orders, nowMillis)
+        val activities = buildSampleActivities(nowMillis)
         return SampleWorkspaceSeedBundle(
             profile = profile,
             orders = orders,
@@ -629,5 +101,515 @@ object SampleBusinessWorkspaceSeeder {
             payments = payments,
             activities = activities
         )
+    }
+
+    private fun buildSampleOrders(exporterName: String, nowMillis: Long): List<ExportOrder> {
+        return listOf(
+            // ORDER-001: Created 4 hours ago -> Included in 1D, 1W, 1M, 3M, 1Y, ALL
+            ExportOrder(
+                id = "sample_ord_001",
+                userId = SAMPLE_USER_ID,
+                orderNumber = "ORDER-001",
+                exporterName = exporterName,
+                exporterContact = "+91 44 2815 4900 • exports@tnglobalexports.in",
+                exporterAddress = "Plot 42, Guindy Industrial Estate, Chennai, Tamil Nadu 600032, India",
+                buyerName = "NordTextil GmbH",
+                buyerCountry = "Germany",
+                buyerContact = "procurement@nordtextil.de • +49 40 3198 220",
+                buyerAddress = "Speicherstadt Block M, 20457 Hamburg, Germany",
+                productName = "Organic Cotton Knitted Apparel",
+                productDescription = "GOTS-Certified 180 GSM Organic Combed Cotton Crewneck & Polo Apparel Assortment",
+                quantity = 5000.0,
+                unit = "PCS",
+                unitPrice = 19.50,
+                orderValue = 97500.0,
+                currency = "EUR",
+                incoterm = "FOB",
+                destinationPort = "Port of Hamburg (DEHAM)",
+                orderDate = "2025-03-04",
+                expectedShipmentDate = "2025-03-29",
+                paymentTerms = "30% Advance via PayPal Sandbox, 70% CAD against Bill of Lading",
+                advancePercentage = 30.0,
+                orderStatus = "SHIPMENT_IN_TRANSIT",
+                extractionSource = "AI_EXTRACTED_CONFIRMED",
+                createdAt = tsAgo(nowMillis, 4L * HOUR_MS),
+                updatedAt = tsAgo(nowMillis, 2L * HOUR_MS)
+            ),
+            // ORDER-002: Created 3 days ago -> Included in 1W, 1M, 3M, 1Y, ALL (Not 1D)
+            ExportOrder(
+                id = "sample_ord_002",
+                userId = SAMPLE_USER_ID,
+                orderNumber = "ORDER-002",
+                exporterName = exporterName,
+                exporterContact = "+91 44 2815 4900 • exports@tnglobalexports.in",
+                exporterAddress = "Plot 42, Guindy Industrial Estate, Chennai, Tamil Nadu 600032, India",
+                buyerName = "Pacific Leather Co.",
+                buyerCountry = "United States",
+                buyerContact = "imports@pacificleather.us • +1 310 555 0194",
+                buyerAddress = "840 Harbor Blvd, Los Angeles, CA 90017, USA",
+                productName = "Handcrafted Leather Wallets",
+                productDescription = "Full-Grain Vegetable-Tanned Ambur Leather Bifold Wallets with RFID Shielding",
+                quantity = 2000.0,
+                unit = "PCS",
+                unitPrice = 16.00,
+                orderValue = 32000.0,
+                currency = "USD",
+                incoterm = "CIF",
+                destinationPort = "Port of Los Angeles (USLAX)",
+                orderDate = "2025-03-08",
+                expectedShipmentDate = "2025-04-06",
+                paymentTerms = "30% Advance via PayPal Sandbox, 70% Net 30 Sight Draft",
+                advancePercentage = 30.0,
+                orderStatus = "AWAITING_PAYMENT",
+                extractionSource = "MANUAL",
+                createdAt = tsAgo(nowMillis, 3L * DAY_MS),
+                updatedAt = tsAgo(nowMillis, 2L * DAY_MS)
+            ),
+            // ORDER-003: Created 5 days ago -> Included in 1W, 1M, 3M, 1Y, ALL (Not 1D)
+            ExportOrder(
+                id = "sample_ord_003",
+                userId = SAMPLE_USER_ID,
+                orderNumber = "ORDER-003",
+                exporterName = exporterName,
+                exporterContact = "+91 44 2815 4900 • exports@tnglobalexports.in",
+                exporterAddress = "Plot 42, Guindy Industrial Estate, Chennai, Tamil Nadu 600032, India",
+                buyerName = "Al Noor Trading LLC",
+                buyerCountry = "United Arab Emirates",
+                buyerContact = "trade@alnoortrading.ae • +971 4 881 7400",
+                buyerAddress = "Jebel Ali Free Zone South, Dubai, UAE",
+                productName = "Turmeric & Spice Export Pack",
+                productDescription = "Erode GI-Grade High-Curcumin (5.2%) Turmeric Finger & Ground Spice Export Cartons",
+                quantity = 8000.0,
+                unit = "KG",
+                unitPrice = 15.00,
+                orderValue = 120000.0,
+                currency = "AED",
+                incoterm = "CFR",
+                destinationPort = "Jebel Ali Port, Dubai (AEJEA)",
+                orderDate = "2025-02-28",
+                expectedShipmentDate = "2025-03-22",
+                paymentTerms = "30% Advance Settled, 70% against Phytosanitary & Origin Cert",
+                advancePercentage = 30.0,
+                orderStatus = "DOCS_READY",
+                extractionSource = "AI_EXTRACTED_CONFIRMED",
+                createdAt = tsAgo(nowMillis, 5L * DAY_MS),
+                updatedAt = tsAgo(nowMillis, 4L * DAY_MS)
+            ),
+            // ORDER-004: Created 16 days ago -> Included in 1M, 3M, 1Y, ALL (Not 1D or 1W)
+            ExportOrder(
+                id = "sample_ord_004",
+                userId = SAMPLE_USER_ID,
+                orderNumber = "ORDER-004",
+                exporterName = exporterName,
+                exporterContact = "+91 44 2815 4900 • exports@tnglobalexports.in",
+                exporterAddress = "Plot 42, Guindy Industrial Estate, Chennai, Tamil Nadu 600032, India",
+                buyerName = "Tropicana Foods",
+                buyerCountry = "Singapore",
+                buyerContact = "supplychain@tropicanafoods.sg • +65 6720 4410",
+                buyerAddress = "18 Jurong Port Road, Singapore 619093",
+                productName = "Processed Chilli & Masala Export",
+                productDescription = "Steam-Sterilized Guntur Sannam Chilli Powder & Blended South Indian Curry Masala",
+                quantity = 3500.0,
+                unit = "KG",
+                unitPrice = 4.80,
+                orderValue = 16800.0,
+                currency = "USD",
+                incoterm = "FOB",
+                destinationPort = "Port of Singapore (SGSIN)",
+                orderDate = "2025-03-11",
+                expectedShipmentDate = "2025-04-12",
+                paymentTerms = "40% Advance via PayPal Sandbox, 60% CAD",
+                advancePercentage = 40.0,
+                orderStatus = "DOCUMENTATION_PENDING",
+                extractionSource = "MANUAL",
+                createdAt = tsAgo(nowMillis, 16L * DAY_MS),
+                updatedAt = tsAgo(nowMillis, 14L * DAY_MS)
+            ),
+            // ORDER-005: Created 45 days ago -> Included in 3M, 1Y, ALL (Not 1D, 1W, or 1M)
+            ExportOrder(
+                id = "sample_ord_005",
+                userId = SAMPLE_USER_ID,
+                orderNumber = "ORDER-005",
+                exporterName = exporterName,
+                exporterContact = "+91 44 2815 4900 • exports@tnglobalexports.in",
+                exporterAddress = "Plot 42, Guindy Industrial Estate, Chennai, Tamil Nadu 600032, India",
+                buyerName = "Midlands Industrial Ltd.",
+                buyerCountry = "United Kingdom",
+                buyerContact = "sourcing@midlandsindustrial.co.uk • +44 121 496 0821",
+                buyerAddress = "Aston Science Park, Birmingham B7 4BJ, United Kingdom",
+                productName = "Precision Machined Steel Valves",
+                productDescription = "CNC-Turned SS316 High-Pressure Flow Control Valves (Ambattur Precision Division)",
+                quantity = 1200.0,
+                unit = "UNITS",
+                unitPrice = 45.00,
+                orderValue = 54000.0,
+                currency = "GBP",
+                incoterm = "CIF",
+                destinationPort = "Port of Felixstowe (GBFXT)",
+                orderDate = "2025-01-29",
+                expectedShipmentDate = "2025-02-24",
+                paymentTerms = "100% Settled via PayPal Cross-Border Checkout",
+                advancePercentage = 30.0,
+                orderStatus = "COMPLETED",
+                extractionSource = "AI_EXTRACTED_CONFIRMED",
+                createdAt = tsAgo(nowMillis, 45L * DAY_MS),
+                updatedAt = tsAgo(nowMillis, 40L * DAY_MS)
+            ),
+            // ORDER-006: Created 150 days ago -> Included in 1Y, ALL (Not 1D, 1W, 1M, or 3M)
+            ExportOrder(
+                id = "sample_ord_006",
+                userId = SAMPLE_USER_ID,
+                orderNumber = "ORDER-006",
+                exporterName = exporterName,
+                exporterContact = "+91 44 2815 4900 • exports@tnglobalexports.in",
+                exporterAddress = "Plot 42, Guindy Industrial Estate, Chennai, Tamil Nadu 600032, India",
+                buyerName = "Sakura Home Living",
+                buyerCountry = "Japan",
+                buyerContact = "buying@sakurahome.co.jp • +81 3 5550 8190",
+                buyerAddress = "Minato-ku Shibaura 3-chome, Tokyo 108-0023, Japan",
+                productName = "Handloom Home Textile Sets",
+                productDescription = "Karur Handloom Dyed Table Linen, Cushion Covers & Organic Cotton Throws",
+                quantity = 1500.0,
+                unit = "SETS",
+                unitPrice = 3466.6667,
+                orderValue = 5200000.0,
+                currency = "JPY",
+                incoterm = "FOB",
+                destinationPort = "Port of Yokohama (JPYOK)",
+                orderDate = "2025-03-14",
+                expectedShipmentDate = "2025-04-18",
+                paymentTerms = "30% Advance via PayPal Sandbox, 70% Letter of Credit",
+                advancePercentage = 30.0,
+                orderStatus = "ORDER_PROCESSING",
+                extractionSource = "AI_EXTRACTED_CONFIRMED",
+                createdAt = tsAgo(nowMillis, 150L * DAY_MS),
+                updatedAt = tsAgo(nowMillis, 145L * DAY_MS)
+            )
+        )
+    }
+
+    private fun buildSampleAssessments(orders: List<ExportOrder>, nowMillis: Long): List<FinancialAssessment> {
+        val configs = mapOf(
+            "sample_ord_001" to AssessmentSeedConfig(
+                fxRate = 91.11,
+                feePct = 2.90,
+                fixedFee = 15.0,
+                procurementInr = 5_180_000.0,
+                logisticsInr = 740_000.0,
+                packagingInr = 210_000.0,
+                otherInr = 125_000.0,
+                note = "EUR/INR hedged at ₹91.11 • Tiruppur & Guindy apparel cluster cost baseline."
+            ),
+            "sample_ord_002" to AssessmentSeedConfig(
+                fxRate = 83.28,
+                feePct = 3.40,
+                fixedFee = 20.0,
+                procurementInr = 1_520_000.0,
+                logisticsInr = 290_000.0,
+                packagingInr = 88_000.0,
+                otherInr = 46_000.0,
+                note = "USD/INR spot ₹83.28 • Ambur tannery procurement + CIF Los Angeles air-sea freight."
+            ),
+            "sample_ord_003" to AssessmentSeedConfig(
+                fxRate = 22.875,
+                feePct = 2.60,
+                fixedFee = 45.0,
+                procurementInr = 1_640_000.0,
+                logisticsInr = 215_000.0,
+                packagingInr = 95_000.0,
+                otherInr = 38_000.0,
+                note = "AED/INR ₹22.875 • Erode APMC spice procurement + Chennai-Jebel Ali reefer container."
+            ),
+            "sample_ord_004" to AssessmentSeedConfig(
+                fxRate = 83.33,
+                feePct = 3.20,
+                fixedFee = 15.0,
+                procurementInr = 820_000.0,
+                logisticsInr = 112_000.0,
+                packagingInr = 48_000.0,
+                otherInr = 29_000.0,
+                note = "USD/INR ₹83.33 • Sterilized spice pack FOB Chennai to Jurong Port."
+            ),
+            "sample_ord_005" to AssessmentSeedConfig(
+                fxRate = 109.54,
+                feePct = 2.80,
+                fixedFee = 18.0,
+                procurementInr = 3_190_000.0,
+                logisticsInr = 490_000.0,
+                packagingInr = 140_000.0,
+                otherInr = 92_000.0,
+                note = "GBP/INR ₹109.54 • High-margin CNC valve order settled 100% via PayPal."
+            ),
+            "sample_ord_006" to AssessmentSeedConfig(
+                fxRate = 0.573,
+                feePct = 3.10,
+                fixedFee = 1500.0,
+                procurementInr = 1_760_000.0,
+                logisticsInr = 265_000.0,
+                packagingInr = 84_000.0,
+                otherInr = 42_000.0,
+                note = "JPY/INR ₹0.573 • Karur handloom linen sets FOB Chennai to Yokohama."
+            )
+        )
+
+        return orders.map { order ->
+            val cfg = configs[order.id]!!
+            FinancialCalculationEngine.calculateAssessment(
+                userId = SAMPLE_USER_ID,
+                exportOrderId = order.id,
+                existingId = "sample_fin_${order.id}",
+                quantity = order.quantity,
+                unitPrice = order.unitPrice,
+                currency = order.currency,
+                exchangeRate = cfg.fxRate,
+                advancePercentage = order.advancePercentage,
+                paymentFeePercentage = cfg.feePct,
+                paymentFixedFee = cfg.fixedFee,
+                procurementCostInr = cfg.procurementInr,
+                logisticsCostInr = cfg.logisticsInr,
+                packagingCostInr = cfg.packagingInr,
+                otherCostsInr = cfg.otherInr,
+                assumptionsNote = cfg.note
+            ).copy(
+                createdAt = order.createdAt ?: tsAgo(nowMillis, DAY_MS),
+                updatedAt = order.updatedAt ?: tsAgo(nowMillis, HOUR_MS)
+            )
+        }
+    }
+
+    private data class AssessmentSeedConfig(
+        val fxRate: Double,
+        val feePct: Double,
+        val fixedFee: Double,
+        val procurementInr: Double,
+        val logisticsInr: Double,
+        val packagingInr: Double,
+        val otherInr: Double,
+        val note: String
+    )
+
+    private fun buildSampleDocuments(orders: List<ExportOrder>, nowMillis: Long): List<DocumentRecord> {
+        val fiveCoreDocs = listOf(
+            "Commercial Invoice",
+            "Packing List",
+            "Bill of Lading / Airway Bill",
+            "Certificate of Origin",
+            "Shipping Bill"
+        )
+
+        val statusMatrix: Map<String, List<Pair<String, String>>> = mapOf(
+            "sample_ord_001" to listOf(
+                "VERIFIED" to "Checked against EUR 97,500 NordTextil proforma invoice",
+                "VERIFIED" to "5,000 PCS carton weights & HS Code 6109.10 verified",
+                "VERIFIED" to "On-board Bill of Lading issued at Chennai Port (INMAA)",
+                "VERIFIED" to "REX / Chamber of Commerce Certificate of Origin verified",
+                "VERIFIED" to "ICEGATE Let Export Order (LEO) checklist verified"
+            ),
+            "sample_ord_002" to listOf(
+                "VERIFIED" to "Commercial Invoice USD 32,000 verified",
+                "VERIFIED" to "2,000 PCS leather wallet packing list verified",
+                "UNDER_REVIEW" to "Draft Airway Bill under freight forwarder review",
+                "VERIFIED" to "CLRI & Chamber of Commerce Certificate of Origin verified",
+                "UPLOADED" to "Draft Shipping Bill uploaded, awaiting customs broker check"
+            ),
+            "sample_ord_003" to listOf(
+                "VERIFIED" to "AED 120,000 Commercial Invoice verified",
+                "VERIFIED" to "8,000 KG spice bags packing manifest verified",
+                "UPLOADED" to "Feeder vessel Bill of Lading draft attached",
+                "VERIFIED" to "Spices Board & UAE Certificate of Origin verified",
+                "VERIFIED" to "Shipping Bill verified for Dubai reefer dispatch"
+            ),
+            "sample_ord_004" to listOf(
+                "VERIFIED" to "USD 16,800 Commercial Invoice verified",
+                "UPLOADED" to "Preliminary packing list uploaded",
+                "MISSING" to "Awaiting vessel booking confirmation for Singapore",
+                "UNDER_REVIEW" to "ASEAN-India FTA Certificate of Origin under review",
+                "MISSING" to "Awaiting FSSAI & phytosanitary batch test numbers"
+            ),
+            "sample_ord_005" to listOf(
+                "VERIFIED" to "GBP 54,000 Final Commercial Invoice verified",
+                "VERIFIED" to "1,200 CNC Steel Valves crate manifest verified",
+                "VERIFIED" to "Clean Bill of Lading delivered to Midlands Industrial Ltd.",
+                "VERIFIED" to "UK Certificate of Origin & Mill Test Certificate verified",
+                "VERIFIED" to "Export Shipping Bill & e-BRC reconciliation complete"
+            ),
+            "sample_ord_006" to listOf(
+                "VERIFIED" to "JPY 5,200,000 Commercial Invoice verified",
+                "VERIFIED" to "1,500 Karur handloom sets packing list verified",
+                "MISSING" to "Vessel slot to Port of Yokohama pending booking",
+                "UPLOADED" to "IJCEPA Certificate of Origin draft uploaded",
+                "UNDER_REVIEW" to "Handloom mark & Shipping Bill under internal review"
+            )
+        )
+
+        val docs = mutableListOf<DocumentRecord>()
+        orders.forEach { order ->
+            val statuses = statusMatrix[order.id] ?: emptyList()
+            fiveCoreDocs.forEachIndexed { idx, docTitle ->
+                val (status, note) = statuses.getOrElse(idx) { "MISSING" to "Awaiting upload" }
+                val slug = docTitle.lowercase().replace(" / ", "_").replace(' ', '_')
+                val fileName = if (status == "MISSING") "" else "${slug}_${order.orderNumber.lowercase()}.pdf"
+                val fileRef = if (status == "MISSING") "" else "sample://tn-global-exports/${order.orderNumber}/$fileName"
+                docs.add(
+                    DocumentRecord(
+                        id = "sample_doc_${order.id}_${idx + 1}",
+                        userId = SAMPLE_USER_ID,
+                        exportOrderId = order.id,
+                        documentType = docTitle,
+                        requirementLevel = "REQUIRED",
+                        status = status,
+                        fileName = fileName,
+                        fileReference = fileRef,
+                        reviewerNote = "$note • LOCALLY STORED DEMO RECORD — NOT UPLOADED TO CLOUD",
+                        fileMimeType = "application/pdf",
+                        fileSizeBytes = if (status == "MISSING") 0L else 248_500L + (idx * 32_100L),
+                        sha256Checksum = if (status == "MISSING") "" else "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85${idx}",
+                        versionNumber = 1,
+                        reviewerRole = if (status == "VERIFIED") "COMPLIANCE_REVIEWER" else "",
+                        createdAt = order.createdAt ?: tsAgo(nowMillis, DAY_MS),
+                        updatedAt = order.updatedAt ?: tsAgo(nowMillis, HOUR_MS)
+                    )
+                )
+            }
+        }
+        return docs
+    }
+
+    private fun buildSamplePayments(orders: List<ExportOrder>, nowMillis: Long): List<PaymentRecord> {
+        return listOf(
+            // Captured 3 hours ago -> Included in 1D, 1W, 1M, 3M, 1Y, ALL
+            PaymentRecord(
+                id = "sample_pay_001",
+                userId = SAMPLE_USER_ID,
+                exportOrderId = "sample_ord_001",
+                paypalOrderId = "DEMO-TXN-ORDER001-ADVANCE-2925000",
+                paypalCaptureId = "DEMO-CAP-EUR-2925000",
+                approvalUrl = "",
+                amount = 29250.0, // 30% Advance of EUR 97,500
+                currency = "EUR",
+                paymentType = "ADVANCE",
+                paymentStatus = "DEMO_CAPTURED",
+                verificationDetails = "SIMULATED PAYMENT — NOT A REAL PAYPAL TRANSACTION • 30% Advance (EUR 29,250) demo-captured • 70% Balance (EUR 68,250) CAD on Hamburg arrival.",
+                createdAt = tsAgo(nowMillis, 4L * HOUR_MS),
+                updatedAt = tsAgo(nowMillis, 3L * HOUR_MS)
+            ),
+            // Pending Demo Payment (2 days ago) -> Not captured, never counted as received revenue
+            PaymentRecord(
+                id = "sample_pay_002",
+                userId = SAMPLE_USER_ID,
+                exportOrderId = "sample_ord_002",
+                paypalOrderId = "DEMO-TXN-ORDER002-ADVANCE-960000",
+                paypalCaptureId = "",
+                approvalUrl = "",
+                amount = 9600.0, // 30% Advance of USD 32,000
+                currency = "USD",
+                paymentType = "ADVANCE",
+                paymentStatus = "DEMO_PENDING",
+                verificationDetails = "SIMULATED PAYMENT — NOT A REAL PAYPAL TRANSACTION • Demo payment request for Pacific Leather Co. (USD 9,600 advance awaiting simulated capture).",
+                createdAt = tsAgo(nowMillis, 2L * DAY_MS),
+                updatedAt = tsAgo(nowMillis, 2L * DAY_MS)
+            ),
+            // Captured 4 days ago -> Included in 1W, 1M, 3M, 1Y, ALL (Not 1D)
+            PaymentRecord(
+                id = "sample_pay_003",
+                userId = SAMPLE_USER_ID,
+                exportOrderId = "sample_ord_003",
+                paypalOrderId = "DEMO-TXN-ORDER003-ADVANCE-3600000",
+                paypalCaptureId = "DEMO-CAP-AED-3600000",
+                approvalUrl = "",
+                amount = 36000.0, // 30% Advance of AED 120,000
+                currency = "AED",
+                paymentType = "ADVANCE",
+                paymentStatus = "DEMO_CAPTURED",
+                verificationDetails = "SIMULATED PAYMENT — NOT A REAL PAYPAL TRANSACTION • 30% Advance (AED 36,000) settled in Demo Mode • Balance AED 84,000 due against original documents.",
+                createdAt = tsAgo(nowMillis, 5L * DAY_MS),
+                updatedAt = tsAgo(nowMillis, 4L * DAY_MS)
+            ),
+            PaymentRecord(
+                id = "sample_pay_004",
+                userId = SAMPLE_USER_ID,
+                exportOrderId = "sample_ord_004",
+                paypalOrderId = "",
+                paypalCaptureId = "",
+                approvalUrl = "",
+                amount = 6720.0, // 40% Advance of USD 16,800
+                currency = "USD",
+                paymentType = "ADVANCE",
+                paymentStatus = "NOT_INITIATED",
+                verificationDetails = "SIMULATED PAYMENT — NOT A REAL PAYPAL TRANSACTION • 40% Advance (USD 6,720) scheduled once Singapore phytosanitary certificate is uploaded.",
+                createdAt = tsAgo(nowMillis, 15L * DAY_MS),
+                updatedAt = tsAgo(nowMillis, 15L * DAY_MS)
+            ),
+            // Captured 40 days ago -> Included in 3M, 1Y, ALL (Not 1D, 1W, or 1M)
+            PaymentRecord(
+                id = "sample_pay_005",
+                userId = SAMPLE_USER_ID,
+                exportOrderId = "sample_ord_005",
+                paypalOrderId = "DEMO-TXN-ORDER005-FULL-5400000",
+                paypalCaptureId = "DEMO-CAP-GBP-5400000",
+                approvalUrl = "",
+                amount = 54000.0, // 100% Full Settlement of GBP 54,000
+                currency = "GBP",
+                paymentType = "FULL",
+                paymentStatus = "DEMO_CAPTURED",
+                verificationDetails = "SIMULATED PAYMENT — NOT A REAL PAYPAL TRANSACTION • 100% Export Invoice (GBP 54,000 / ₹59.15 Lakhs) demo-captured for Midlands Industrial Ltd.",
+                createdAt = tsAgo(nowMillis, 44L * DAY_MS),
+                updatedAt = tsAgo(nowMillis, 40L * DAY_MS)
+            ),
+            PaymentRecord(
+                id = "sample_pay_006",
+                userId = SAMPLE_USER_ID,
+                exportOrderId = "sample_ord_006",
+                paypalOrderId = "DEMO-TXN-ORDER006-ADVANCE-156000000",
+                paypalCaptureId = "",
+                approvalUrl = "",
+                amount = 1560000.0, // 30% Advance of JPY 5,200,000
+                currency = "JPY",
+                paymentType = "ADVANCE",
+                paymentStatus = "DEMO_PENDING",
+                verificationDetails = "SIMULATED PAYMENT — NOT A REAL PAYPAL TRANSACTION • Demo payment created for JPY 1,560,000 advance from Sakura Home Living, Tokyo.",
+                createdAt = tsAgo(nowMillis, 145L * DAY_MS),
+                updatedAt = tsAgo(nowMillis, 145L * DAY_MS)
+            )
+        )
+    }
+
+    private fun buildSampleActivities(nowMillis: Long): List<ActivityRecord> {
+        val items = listOf(
+            Triple("sample_ord_001", "SHIPMENT_DISPATCHED", "ORDER-001 Vessel Departed Chennai Port" to "5,000 PCS Organic Cotton Apparel loaded on MV Hapag-Lloyd bound for Hamburg (EUR 97,500)."),
+            Triple("sample_ord_001", "DEMO_PAYMENT_CAPTURED", "ORDER-001 Simulated Advance Payment Captured" to "Demo-captured EUR 29,250 (30% advance) from NordTextil GmbH (DEMO-CAP-EUR-2925000)."),
+            Triple("sample_ord_001", "DOC_VERIFIED", "ORDER-001 All 5 Mandatory Documents Verified" to "Commercial Invoice, Packing List, Bill of Lading, Origin Cert, and Shipping Bill marked VERIFIED."),
+            Triple("sample_ord_002", "DEMO_PAYMENT_CREATED", "ORDER-002 Simulated Payment Initiated" to "Created Demo Payment DEMO-TXN-ORDER002-ADVANCE-960000 for USD 9,600 advance (Pacific Leather Co.)."),
+            Triple("sample_ord_002", "DOC_UNDER_REVIEW", "ORDER-002 Airway Bill Under Review" to "Los Angeles CIF freight forwarder reviewing draft Airway Bill for 2,000 leather wallets."),
+            Triple("sample_ord_002", "FINANCIAL_ASSESSED", "ORDER-002 Margin Computed at 22.8%" to "Ambur leather wallet order assessed at ₹26.65L gross value with ₹6.08L estimated net profit."),
+            Triple("sample_ord_003", "DEMO_PAYMENT_CAPTURED", "ORDER-003 Simulated Advance AED 36,000 Captured" to "Al Noor Trading LLC settled 30% demo advance (DEMO-CAP-AED-3600000) for 8,000 KG Erode turmeric pack."),
+            Triple("sample_ord_003", "DOC_VERIFIED", "ORDER-003 Spices Board & Origin Cert Verified" to "4 of 5 mandatory export documents verified; feeder Bill of Lading uploaded."),
+            Triple("sample_ord_003", "FINANCIAL_ASSESSED", "ORDER-003 Spice Export Margin at 24.5%" to "Converted INR value ₹27.45L with ₹6.74L estimated net profit after reefer freight."),
+            Triple("sample_ord_004", "DOC_ALERT", "ORDER-004 Missing Bill of Lading & Shipping Bill" to "Tropicana Foods Singapore order (USD 16,800) requires 2 mandatory documents before dispatch."),
+            Triple("sample_ord_004", "FINANCIAL_ASSESSED", "ORDER-004 Financial Assessment Saved" to "Processed Chilli & Masala export valued at ₹14.00L with ₹3.44L net profit (24.5% margin)."),
+            Triple("sample_ord_004", "ORDER_CREATED", "ORDER-004 Registered for Tropicana Foods" to "3,500 KG Guntur chilli & masala order created for Port of Singapore."),
+            Triple("sample_ord_005", "ORDER_COMPLETED", "ORDER-005 Completed & 100% Settled" to "Midlands Industrial Ltd. (UK) GBP 54,000 CNC steel valve export fully settled & delivered."),
+            Triple("sample_ord_005", "DEMO_PAYMENT_CAPTURED", "ORDER-005 Simulated Full Settlement GBP 54,000 Captured" to "Simulated payment capture DEMO-CAP-GBP-5400000 verified for ₹59.15L equivalent."),
+            Triple("sample_ord_005", "DOC_VERIFIED", "ORDER-005 100% Compliance Readiness Achieved" to "All 5 mandatory UK export & mill test documents verified."),
+            Triple("sample_ord_005", "FINANCIAL_ASSESSED", "ORDER-005 Highest Portfolio Margin (30.9%)" to "Ambattur precision valve shipment generated ₹18.25L net profit on ₹59.15L revenue."),
+            Triple("sample_ord_006", "DEMO_PAYMENT_CREATED", "ORDER-006 Simulated JPY 1,560,000 Advance Initiated" to "Simulated payment DEMO-TXN-ORDER006-ADVANCE-156000000 generated for Sakura Home Living, Tokyo."),
+            Triple("sample_ord_006", "DOC_UPLOADED", "ORDER-006 IJCEPA Origin Draft Uploaded" to "Karur handloom textile sets origin certificate uploaded for Japan customs."),
+            Triple("sample_ord_006", "FINANCIAL_ASSESSED", "ORDER-006 JPY Conversion Assessed" to "JPY 5,200,000 converted at ₹0.573 = ₹29.80L with ₹7.33L estimated net profit."),
+            Triple("sample_ord_006", "AI_EXTRACTION_CONFIRMED", "ORDER-006 AI Purchase Order Extraction Confirmed" to "Gemini multimodal extraction parsed Sakura Home Living PO with 96% confidence.")
+        )
+
+        return items.mapIndexed { idx, (orderId, eventType, pair) ->
+            val offsetMillis = (idx + 1) * 3L * HOUR_MS
+            ActivityRecord(
+                id = "sample_act_${idx + 1}",
+                userId = SAMPLE_USER_ID,
+                exportOrderId = orderId,
+                eventType = eventType,
+                title = pair.first,
+                description = pair.second,
+                createdAt = tsAgo(nowMillis, offsetMillis),
+                updatedAt = tsAgo(nowMillis, offsetMillis)
+            )
+        }
     }
 }

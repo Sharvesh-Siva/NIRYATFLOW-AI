@@ -72,6 +72,40 @@ function validOrderPayload(uid) {
   };
 }
 
+function validPaymentPayload(uid, paymentStatus) {
+  const now = new Date();
+  return {
+    userId: uid,
+    exportOrderId: "order_1",
+    paypalOrderId: "PAYID-TEST-001",
+    paypalCaptureId: paymentStatus === "CAPTURED" ? "CAP-TEST-001" : "",
+    approvalUrl: "https://www.sandbox.paypal.com/checkoutnow?token=PAYID-TEST-001",
+    amount: 12750.0,
+    currency: "USD",
+    paymentType: "ADVANCE",
+    paymentStatus,
+    verificationDetails: "Test payment record",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function validDocumentPayload(uid, status) {
+  const now = new Date();
+  return {
+    userId: uid,
+    exportOrderId: "order_1",
+    documentType: "Commercial Invoice",
+    requirementLevel: "REQUIRED",
+    status,
+    fileName: "commercial_invoice.pdf",
+    fileReference: "local://niryat_documents/order_1/commercial_invoice.pdf",
+    reviewerNote: "Uploaded for review",
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 test("Unauthenticated user: cannot list or read export_orders", async () => {
   const unauthDb = testEnv.unauthenticatedContext().firestore();
   await assertFails(unauthDb.collection("export_orders").get());
@@ -102,6 +136,60 @@ test("Authenticated user: cannot read or update another user's export_order", as
   await assertFails(
     aliceDb.collection("export_orders").doc("bob_order").update({
       orderStatus: "VALIDATED",
+      updatedAt: new Date(),
+    })
+  );
+});
+
+test("Security Hardening (Part 5): Ordinary client CANNOT falsify paymentStatus as CAPTURED", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  // Creating PENDING_APPROVAL succeeds
+  await assertSucceeds(
+    aliceDb
+      .collection("payment_records")
+      .doc("pay_1")
+      .set(validPaymentPayload(ALICE_UID, "PENDING_APPROVAL"))
+  );
+  // Creating CAPTURED directly from client fails
+  await assertFails(
+    aliceDb
+      .collection("payment_records")
+      .doc("pay_forged")
+      .set(validPaymentPayload(ALICE_UID, "CAPTURED"))
+  );
+  // Updating PENDING_APPROVAL -> CAPTURED directly from client fails
+  await assertFails(
+    aliceDb.collection("payment_records").doc("pay_1").update({
+      paymentStatus: "CAPTURED",
+      paypalCaptureId: "FORGED-CAP-999",
+      updatedAt: new Date(),
+    })
+  );
+});
+
+test("Security Hardening (Part 5): Ordinary client CANNOT self-verify document_records without REVIEWER claim", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  // Uploading as UPLOADED or PENDING_REVIEW succeeds
+  await assertSucceeds(
+    aliceDb
+      .collection("document_records")
+      .doc("doc_1")
+      .set(validDocumentPayload(ALICE_UID, "PENDING_REVIEW"))
+  );
+  // Ordinary user attempting to mark as VERIFIED fails
+  await assertFails(
+    aliceDb.collection("document_records").doc("doc_1").update({
+      status: "VERIFIED",
+      updatedAt: new Date(),
+    })
+  );
+  // Authorized Reviewer CAN mark as VERIFIED
+  const reviewerDb = testEnv
+    .authenticatedContext(ALICE_UID, { role: "REVIEWER" })
+    .firestore();
+  await assertSucceeds(
+    reviewerDb.collection("document_records").doc("doc_1").update({
+      status: "VERIFIED",
       updatedAt: new Date(),
     })
   );

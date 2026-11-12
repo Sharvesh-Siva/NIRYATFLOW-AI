@@ -106,6 +106,8 @@ fun PayPalPaymentsScreen(
     onCreatePayPalOrder: (ExportOrder, Double, String) -> Unit,
     onCapturePayPalOrder: (PaymentRecord) -> Unit,
     onReconcilePayPalOrder: (PaymentRecord) -> Unit,
+    onFailDemoPayment: (PaymentRecord) -> Unit = {},
+    onCancelDemoPayment: (PaymentRecord) -> Unit = {},
     onBack: () -> Unit
 ) {
     BackHandler { onBack() }
@@ -119,8 +121,11 @@ fun PayPalPaymentsScreen(
     }
 
     val context = LocalContext.current
+    val isDemoMode = portfolio.isSampleWorkspace
     val orderPayments = portfolio.payments.filter { it.exportOrderId == order.id }
-    val totalCaptured = orderPayments.filter { it.paymentStatus == "CAPTURED" }.sumOf { it.amount }
+    val totalCaptured = orderPayments
+        .filter { FinancialCalculationEngine.isPaymentSettled(it.paymentStatus) }
+        .sumOf { it.amount }
     val pendingAmount = (order.orderValue - totalCaptured).coerceAtLeast(0.0)
     val collectionPct = if (order.orderValue > 0.0) {
         ((totalCaptured / order.orderValue) * 100.0).toInt().coerceIn(0, 100)
@@ -147,7 +152,7 @@ fun PayPalPaymentsScreen(
             contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header with Sandbox Pill
+            // Header with Mode Pill
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -167,13 +172,13 @@ fun PayPalPaymentsScreen(
                         }
                         Column {
                             Text(
-                                text = "INTERNATIONAL SETTLEMENTS",
+                                text = if (isDemoMode) "ZERO-COST DEMO PAYMENT ENGINE" else "INTERNATIONAL SETTLEMENTS",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = ChampagneAccent,
                                 fontFamily = JetBrainsMonoFamily
                             )
                             Text(
-                                text = "PayPal Cross-Border Hub",
+                                text = if (isDemoMode) "Simulated Export Settlement Hub" else "PayPal Cross-Border Hub",
                                 style = MaterialTheme.typography.titleLarge,
                                 color = PrimaryInk,
                                 fontFamily = SpaceGroteskFamily,
@@ -183,7 +188,7 @@ fun PayPalPaymentsScreen(
                     }
 
                     StatusPill(
-                        label = "SANDBOX / TEST ENV",
+                        label = if (isDemoMode) "DEMO MODE" else "SANDBOX / TEST ENV",
                         tone = FintechTone.ACCENT_GOLD
                     )
                 }
@@ -215,71 +220,115 @@ fun PayPalPaymentsScreen(
                 }
             }
 
-            // OAuth 2.0 Sandbox Connection Status Banner
+            // Mandatory Simulated Payment Disclaimer Banner in Demo Mode, or OAuth Status in Production Mode
             item {
-                WarmSurfaceCard(
-                    modifier = Modifier.fillMaxWidth(),
-                    backgroundColor = if (isPayPalConfigured) PureWhiteSurface else WarningAmberBg,
-                    borderColor = if (isPayPalConfigured) WarmBorder else WarningAmberTone.copy(alpha = 0.4f)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                if (isDemoMode) {
+                    WarmSurfaceCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("simulated_payment_banner"),
+                        backgroundColor = WarningAmberBg,
+                        borderColor = ChampagneAccent
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Security,
-                                contentDescription = null,
-                                tint = if (isPayPalConfigured) PositiveEmerald else WarningAmberTone,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = if (isPayPalConfigured) {
-                                        "PAYPAL SANDBOX CREDENTIALS DETECTED"
-                                    } else {
-                                        "PAYPAL SANDBOX CREDENTIALS MISSING IN SECRETS"
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isPayPalConfigured) PositiveEmerald else WarningAmberTone,
-                                    fontFamily = JetBrainsMonoFamily
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = ChampagneAccent,
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                Text(
-                                    text = if (isPayPalConfigured) {
-                                        "Live OAuth 2.0 & Checkout Orders v2 connected to api-m.sandbox.paypal.com."
-                                    } else {
-                                        "Add PAYPAL_SANDBOX_CLIENT_ID and PAYPAL_SANDBOX_CLIENT_SECRET in the AI Studio Secrets panel to enable live Sandbox API calls."
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = PrimaryInk
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = "SIMULATED PAYMENT — NOT A REAL PAYPAL TRANSACTION",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = ChampagneAccent,
+                                        fontFamily = JetBrainsMonoFamily,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.testTag("simulated_payment_banner_text")
+                                    )
+                                    Text(
+                                        text = "Demo Mode runs locally via DemoPaymentService (status: DEMO_CAPTURED / DEMO_PENDING / DEMO_FAILED / DEMO_CANCELLED). No Firebase Blaze upgrade, Cloud Functions deployment, or PAYPAL_BACKEND_BASE_URL is required.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = PrimaryInk
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    WarmSurfaceCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        backgroundColor = if (isPayPalConfigured) PureWhiteSurface else WarningAmberBg,
+                        borderColor = if (isPayPalConfigured) WarmBorder else WarningAmberTone.copy(alpha = 0.4f)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = if (isPayPalConfigured) PositiveEmerald else WarningAmberTone,
+                                    modifier = Modifier.size(20.dp)
                                 )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = if (isPayPalConfigured) {
+                                            "PAYPAL SANDBOX BACKEND CONNECTED (ZERO CLIENT SECRET IN APK)"
+                                        } else {
+                                            "PAYPAL SANDBOX BACKEND CONFIGURATION PENDING"
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isPayPalConfigured) PositiveEmerald else WarningAmberTone,
+                                        fontFamily = JetBrainsMonoFamily
+                                    )
+                                    Text(
+                                        text = if (isPayPalConfigured) {
+                                            "Authenticated Cloud Function connected to api-m.sandbox.paypal.com (Secret in Firebase Secret Manager)."
+                                        } else {
+                                            "Production Mode never silently fakes payments. Set PAYPAL_BACKEND_BASE_URL or switch to Sample Business Workspace for Zero-Cost Demo Mode."
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = PrimaryInk
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+                            OutlinedButton(
+                                onClick = onVerifyPayPalOAuth,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, PrimaryInk),
+                                modifier = Modifier.testTag("test_paypal_oauth_inline_button")
+                            ) {
+                                Text("Verify OAuth", style = MaterialTheme.typography.labelSmall, color = PrimaryInk)
                             }
                         }
 
-                        Spacer(modifier = Modifier.width(8.dp))
-                        OutlinedButton(
-                            onClick = onVerifyPayPalOAuth,
-                            shape = RoundedCornerShape(10.dp),
-                            border = BorderStroke(1.dp, PrimaryInk),
-                            modifier = Modifier.testTag("test_paypal_oauth_inline_button")
-                        ) {
-                            Text("Verify OAuth", style = MaterialTheme.typography.labelSmall, color = PrimaryInk)
+                        if (!paypalAuthCheckStatus.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = paypalAuthCheckStatus,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (paypalAuthCheckStatus.startsWith("PASS") || paypalAuthCheckStatus.startsWith("DEMO")) PositiveEmerald else CriticalCrimsonTone,
+                                fontFamily = JetBrainsMonoFamily
+                            )
                         }
-                    }
-
-                    if (!paypalAuthCheckStatus.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = paypalAuthCheckStatus,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (paypalAuthCheckStatus.startsWith("PASS")) PositiveEmerald else CriticalCrimsonTone,
-                            fontFamily = JetBrainsMonoFamily
-                        )
                     }
                 }
             }
@@ -293,7 +342,7 @@ fun PayPalPaymentsScreen(
                         verticalAlignment = Alignment.Top
                     ) {
                         LargeMetricDisplay(
-                            label = "Verified Captured Receipts",
+                            label = if (isDemoMode) "Simulated Captured Receipts (DEMO_CAPTURED)" else "Verified Captured Receipts",
                             primaryValue = "${order.currency} ${String.format("%,.2f", totalCaptured)}",
                             badgeText = "$collectionPct% Settled",
                             badgeTone = if (collectionPct >= 30) FintechTone.POSITIVE else FintechTone.WARNING,
@@ -347,18 +396,19 @@ fun PayPalPaymentsScreen(
 
                     val latestStatus = orderPayments.firstOrNull()?.paymentStatus
                     val activeStepIdx = when (latestStatus) {
-                        null -> -1
-                        "PENDING_APPROVAL" -> 1
+                        null, "NOT_INITIATED" -> -1
+                        "PENDING_APPROVAL", "DEMO_PENDING" -> 1
                         "APPROVED" -> 2
-                        "CAPTURED" -> 4
+                        "CAPTURED", "DEMO_CAPTURED" -> 4
+                        "DEMO_FAILED", "DEMO_CANCELLED", "FAILED", "CANCELLED" -> 0
                         else -> 1
                     }
                     val steps = listOf(
                         "1. Created",
-                        "2. Approval",
+                        "2. Pending",
                         "3. Processing",
                         "4. Verified",
-                        "5. Completed"
+                        "5. Settled"
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -385,18 +435,22 @@ fun PayPalPaymentsScreen(
                 }
             }
 
-            // Create New PayPal Sandbox Order Card
+            // Create New Payment Card (Simulated in Demo Mode, PayPal Backend in Production Mode)
             item {
                 WarmSurfaceCard(modifier = Modifier.fillMaxWidth()) {
                     Text(
-                        text = "INITIATE PAYPAL SANDBOX CHECKOUT ORDER",
+                        text = if (isDemoMode) {
+                            "INITIATE SIMULATED PAYMENT (IDEMPOTENT DEMO ENGINE)"
+                        } else {
+                            "INITIATE PAYPAL SANDBOX CHECKOUT ORDER"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = SecondaryInk,
                         fontFamily = JetBrainsMonoFamily
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Create Buyer Milestone Invoice",
+                        text = if (isDemoMode) "Create Simulated Buyer Milestone" else "Create Buyer Milestone Invoice",
                         style = MaterialTheme.typography.titleMedium,
                         color = PrimaryInk
                     )
@@ -466,7 +520,7 @@ fun PayPalPaymentsScreen(
                                 color = PureWhiteSurface
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Communicating with PayPal Sandbox...")
+                            Text("Processing Payment Request...")
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Payments,
@@ -475,7 +529,13 @@ fun PayPalPaymentsScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Create PayPal Sandbox Order (${order.currency} $amountText)")
+                            Text(
+                                if (isDemoMode) {
+                                    "Create Simulated Payment (${order.currency} $amountText)"
+                                } else {
+                                    "Create PayPal Sandbox Order (${order.currency} $amountText)"
+                                }
+                            )
                         }
                     }
                 }
@@ -483,7 +543,13 @@ fun PayPalPaymentsScreen(
 
             // Transaction History
             item {
-                SectionHeaderRow(title = "PayPal Transaction Ledger (${orderPayments.size})")
+                SectionHeaderRow(
+                    title = if (isDemoMode) {
+                        "Simulated Transaction Ledger (${orderPayments.size})"
+                    } else {
+                        "PayPal Transaction Ledger (${orderPayments.size})"
+                    }
+                )
             }
 
             if (orderPayments.isEmpty()) {
@@ -498,11 +564,23 @@ fun PayPalPaymentsScreen(
                 }
             } else {
                 items(orderPayments, key = { it.id }) { payment ->
+                    val isSettled = FinancialCalculationEngine.isPaymentSettled(payment.paymentStatus)
                     WarmSurfaceCard(
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("payment_record_card_${payment.id}")
                     ) {
+                        if (isDemoMode || payment.paymentStatus.startsWith("DEMO_")) {
+                            Text(
+                                text = "SIMULATED PAYMENT — NOT A REAL PAYPAL TRANSACTION",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = ChampagneAccent,
+                                fontFamily = JetBrainsMonoFamily,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -515,14 +593,14 @@ fun PayPalPaymentsScreen(
                                     color = PrimaryInk
                                 )
                                 Text(
-                                    text = "PayPal Order ID: ${payment.paypalOrderId.ifBlank { "PENDING" }}",
+                                    text = "Transaction Ref: ${payment.paypalOrderId.ifBlank { "NOT_INITIATED" }}",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = SecondaryInk,
                                     fontFamily = JetBrainsMonoFamily
                                 )
                             }
                             StatusPill(
-                                label = payment.paymentStatus.replace('_', ' '),
+                                label = payment.paymentStatus,
                                 tone = statusToneFor(payment.paymentStatus)
                             )
                         }
@@ -543,7 +621,7 @@ fun PayPalPaymentsScreen(
                                 )
                             }
                             Column(horizontalAlignment = Alignment.End) {
-                                Text("CAPTURE ID", style = MaterialTheme.typography.labelSmall, color = SecondaryInk, fontFamily = JetBrainsMonoFamily)
+                                Text("SETTLEMENT REF", style = MaterialTheme.typography.labelSmall, color = SecondaryInk, fontFamily = JetBrainsMonoFamily)
                                 Text(
                                     text = payment.paypalCaptureId.ifBlank { "Awaiting Capture" },
                                     style = MaterialTheme.typography.bodySmall,
@@ -562,7 +640,7 @@ fun PayPalPaymentsScreen(
                             )
                         }
 
-                        if (payment.paymentStatus != "CAPTURED") {
+                        if (!isSettled) {
                             Spacer(modifier = Modifier.height(12.dp))
                             HorizontalDivider(color = WarmBorder)
                             Spacer(modifier = Modifier.height(10.dp))
@@ -570,7 +648,7 @@ fun PayPalPaymentsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                if (payment.approvalUrl.isNotBlank()) {
+                                if (!isDemoMode && payment.approvalUrl.isNotBlank()) {
                                     OutlinedButton(
                                         onClick = {
                                             runCatching {
@@ -592,21 +670,47 @@ fun PayPalPaymentsScreen(
                                     }
                                 }
 
-                                OutlinedButton(
-                                    onClick = { onReconcilePayPalOrder(payment) },
-                                    enabled = !isPaymentBusy,
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, WarmBorder),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Refresh,
-                                        contentDescription = "Reconcile",
-                                        modifier = Modifier.size(15.dp),
-                                        tint = PrimaryInk
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Reconcile", style = MaterialTheme.typography.labelSmall, color = PrimaryInk)
+                                if (isDemoMode) {
+                                    OutlinedButton(
+                                        onClick = { onFailDemoPayment(payment) },
+                                        enabled = !isPaymentBusy,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, CriticalCrimsonTone.copy(alpha = 0.6f)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("fail_demo_payment_btn_${payment.id}")
+                                    ) {
+                                        Text("Fail", style = MaterialTheme.typography.labelSmall, color = CriticalCrimsonTone)
+                                    }
+
+                                    OutlinedButton(
+                                        onClick = { onCancelDemoPayment(payment) },
+                                        enabled = !isPaymentBusy,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, WarmBorder),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("cancel_demo_payment_btn_${payment.id}")
+                                    ) {
+                                        Text("Cancel", style = MaterialTheme.typography.labelSmall, color = PrimaryInk)
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { onReconcilePayPalOrder(payment) },
+                                        enabled = !isPaymentBusy,
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, WarmBorder),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Reconcile",
+                                            modifier = Modifier.size(15.dp),
+                                            tint = PrimaryInk
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Reconcile", style = MaterialTheme.typography.labelSmall, color = PrimaryInk)
+                                    }
                                 }
 
                                 Button(
@@ -618,7 +722,7 @@ fun PayPalPaymentsScreen(
                                         contentColor = PureWhiteSurface
                                     ),
                                     modifier = Modifier
-                                        .weight(1f)
+                                        .weight(1.2f)
                                         .testTag("capture_paypal_btn_${payment.id}")
                                 ) {
                                     Icon(
@@ -627,7 +731,10 @@ fun PayPalPaymentsScreen(
                                         modifier = Modifier.size(15.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Capture", style = MaterialTheme.typography.labelSmall)
+                                    Text(
+                                        if (isDemoMode) "Simulate Capture" else "Capture",
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
                                 }
                             }
                         }

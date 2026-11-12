@@ -39,6 +39,17 @@ class NiryatRepository(private val db: FirebaseFirestore) {
             ?: throw IllegalStateException("User must be signed in with Google before accessing Firestore.")
     }
 
+    suspend fun hasReviewerClaim(): Boolean {
+        val user = auth.currentUser ?: return false
+        return try {
+            val tokenResult = user.getIdToken(false).await()
+            val claims = tokenResult.claims
+            claims["role"] == "REVIEWER" || claims["reviewer"] == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     // --- OBSERVATION FLOWS ---
 
     fun observeOrders(userId: String = requireUserId()): Flow<List<ExportOrder>> = flow {
@@ -292,6 +303,20 @@ class NiryatRepository(private val db: FirebaseFirestore) {
         }
     }
 
+    suspend fun deleteOrder(orderId: String): Result<Unit> {
+        val docRef = db.collection("export_orders").document(orderId)
+        return try {
+            requireUserId()
+            docRef.delete().await()
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, docRef.path)
+            Result.failure(e)
+        }
+    }
+
     // --- FINANCIAL ASSESSMENT CRUD ---
 
     suspend fun saveFinancialAssessment(assessment: FinancialAssessment): Result<String> {
@@ -397,6 +422,10 @@ class NiryatRepository(private val db: FirebaseFirestore) {
                 "fileName" to "",
                 "fileReference" to "",
                 "reviewerNote" to "Awaiting upload",
+                "mimeType" to "application/pdf",
+                "fileSizeBytes" to 0L,
+                "sha256Hash" to "",
+                "versionNumber" to 1,
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
@@ -416,11 +445,24 @@ class NiryatRepository(private val db: FirebaseFirestore) {
         status: String,
         fileName: String,
         fileReference: String,
-        reviewerNote: String
+        reviewerNote: String,
+        mimeType: String = "application/pdf",
+        fileSizeBytes: Long = 0L,
+        sha256Hash: String = "",
+        versionNumber: Int = 1
     ): Result<Unit> {
         val docRef = db.collection("document_records").document(docId)
         return try {
             requireUserId()
+            // Enforce Part 5 reviewer authorization check before writing restricted states
+            val isReviewer = hasReviewerClaim()
+            val restrictedStates = setOf("APPROVED", "VERIFIED", "OFFICIALLY_CERTIFIED")
+            if (status in restrictedStates && !isReviewer) {
+                throw SecurityException(
+                    "Security Policy: Ordinary exporter accounts cannot self-verify documents as '$status'. Submit as PENDING_REVIEW for an authorized Reviewer."
+                )
+            }
+
             docRef.update(
                 mapOf(
                     "documentType" to documentType,
@@ -429,14 +471,18 @@ class NiryatRepository(private val db: FirebaseFirestore) {
                     "fileName" to fileName,
                     "fileReference" to fileReference,
                     "reviewerNote" to reviewerNote,
+                    "mimeType" to mimeType,
+                    "fileSizeBytes" to fileSizeBytes,
+                    "sha256Hash" to sha256Hash,
+                    "versionNumber" to versionNumber,
                     "updatedAt" to FieldValue.serverTimestamp()
                 )
             ).await()
 
             logActivity(
                 exportOrderId = exportOrderId,
-                eventType = if (status == "VERIFIED") "DOC_VERIFIED" else "DOC_UPLOADED",
-                title = "$documentType -> $status",
+                eventType = if (status in restrictedStates) "DOC_VERIFIED" else "DOC_UPLOADED",
+                title = "$documentType -> $status (v$versionNumber)",
                 description = if (fileName.isNotBlank()) "File: $fileName ($reviewerNote)" else reviewerNote
             )
             Result.success(Unit)
@@ -465,6 +511,10 @@ class NiryatRepository(private val db: FirebaseFirestore) {
                 "fileName" to "",
                 "fileReference" to "",
                 "reviewerNote" to "Added to export checklist",
+                "mimeType" to "application/pdf",
+                "fileSizeBytes" to 0L,
+                "sha256Hash" to "",
+                "versionNumber" to 1,
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp()
             )
@@ -488,6 +538,9 @@ class NiryatRepository(private val db: FirebaseFirestore) {
             db.collection("payment_records").document()
         }
         return try {
+            if (payment.paymentStatus == "CAPTURED") {
+                throw SecurityException("Client cannot directly create a CAPTURED payment record in Firestore.")
+            }
             val payload = mapOf(
                 "userId" to uid,
                 "exportOrderId" to payment.exportOrderId,
@@ -530,6 +583,17 @@ class NiryatRepository(private val db: FirebaseFirestore) {
         val docRef = db.collection("payment_records").document(paymentId)
         return try {
             requireUserId()
+            // In production, CAPTURED is already written by the Cloud Function capturePayPalSandboxOrder.
+            if (paymentStatus == "CAPTURED") {
+                logActivity(
+                    exportOrderId = exportOrderId,
+                    eventType = "PAYMENT_CAPTURED",
+                    title = "PayPal Payment Verified by Backend ($paypalCaptureId)",
+                    description = verificationDetails
+                )
+                return Result.success(Unit)
+            }
+
             docRef.update(
                 mapOf(
                     "paypalOrderId" to paypalOrderId,
@@ -540,17 +604,9 @@ class NiryatRepository(private val db: FirebaseFirestore) {
                 )
             ).await()
 
-            if (paymentStatus == "CAPTURED") {
-                updateOrderStatus(
-                    orderId = exportOrderId,
-                    newStatus = "COMPLETED",
-                    reason = "PayPal Sandbox payment captured (Capture ID: $paypalCaptureId)"
-                )
-            }
-
             logActivity(
                 exportOrderId = exportOrderId,
-                eventType = if (paymentStatus == "CAPTURED") "PAYMENT_CAPTURED" else "STATUS_CHANGED",
+                eventType = "STATUS_CHANGED",
                 title = "PayPal Payment Status: $paymentStatus",
                 description = verificationDetails
             )

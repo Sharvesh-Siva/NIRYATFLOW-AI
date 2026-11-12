@@ -300,9 +300,10 @@ class GeminiIntelligenceService {
             }
 
             val prompt = """
-                You are the NiryatFlow AI Business Query Engine for $businessName (${if (isSampleWorkspace) "SAMPLE BUSINESS WORKSPACE - FICTIONAL DATA" else "PRODUCTION WORKSPACE"}).
+                You are the NiryatFlow AI Business Query Engine for $businessName (${if (isSampleWorkspace) "SAMPLE BUSINESS WORKSPACE - ZERO-COST DEMO MODE WITH SIMULATED PAYMENTS [DEMO_CAPTURED] AND LOCALLY STORED DOCUMENTS" else "PRODUCTION WORKSPACE"}).
                 Answer the exporter's natural-language query strictly using the authorized workspace records below.
                 Do NOT invent orders, amounts, or statuses not present in the context.
+                ${if (isSampleWorkspace) "IMPORTANT: Clearly note that payments marked DEMO_CAPTURED / DEMO_PENDING are SIMULATED PAYMENTS (not real PayPal transactions) and documents are locally stored demo records." else ""}
                 
                 Workspace Portfolio Totals (Base Currency: INR):
                 - Total Orders: ${metrics.totalOrders} (Active: ${metrics.activeOrders}, Completed: ${metrics.completedOrders})
